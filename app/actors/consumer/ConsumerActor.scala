@@ -3,12 +3,10 @@ package actors.consumer
 import java.util.Properties
 
 import actors.consumer.ConsumerActor._
-import actors.consumer.ConsumerLockedProperties._
-import akka.actor.{Actor, ActorContext, PoisonPill, Props}
-import akka.routing.ConsistentHashingPool
-import akka.routing.ConsistentHashingRouter.ConsistentHashable
+import actors.consumer.ConsumerSupervisorActor.ExistingConsumer
+import akka.actor.SupervisorStrategy.Stop
+import akka.actor.{Actor, ActorRef, OneForOneStrategy, PoisonPill, SupervisorStrategy}
 import cats.implicits._
-import models.OffsetPosition
 import monix.eval.Task
 import monix.execution.Scheduler
 import org.apache.avro.generic.GenericRecord
@@ -19,30 +17,21 @@ import scala.collection.JavaConverters._
 import scala.concurrent.duration._
 
 object ConsumerActor {
-
   case class ConsumerConfig(id: String, props: Properties)
-  case class CreateConsumer(conf: ConsumerConfig) extends ConsistentHashable {
-    override def consistentHashKey = conf.id
-  }
-  case class CreateAvroConsumer(conf: ConsumerConfig) extends ConsistentHashable {
-    override def consistentHashKey = conf.id
-  }
-
-  case class ShutdownConsumer(id: String) extends ConsistentHashable {
-    override def consistentHashKey = id
-  }
+  case class CreateConsumer(conf: ConsumerConfig)
+  case class ShutdownConsumer(id: String)
   case class StartConsumer(topic: String, partition: Int, offsetStart: OffsetPosition)
   case class MoveOffset(topic: String, partition: Int, offsetPosition: OffsetPosition)
+
   case object PollMessages
-  case class GetMessages(maxMessages: Int)
-  case class MessagesPayload[K, V](messages: Seq[ConsumerRecord[K, V]])
+  case class GetMessages(topic: String, partition: Int, maxMessages: Int)
+  case class MessagesPayload[K,V](payload: Seq[ConsumerRecord[K, V]])
 }
 
 trait ConsumerActor[K, V] extends Actor {
 
   case class KafkaConsumerError(reason: String, error: Option[Throwable] = None)
   type ConfiguredKafkaConsumer = Either[KafkaConsumerError, KafkaConsumer[K, V]]
-  type MessageBuffer = Seq[ConsumerRecord[K, V]]
   type PolledMessages = Task[Either[KafkaConsumerError, ConsumerRecords[K, V]]]
 
   implicit val scheduler = Scheduler(context.dispatcher)
@@ -51,20 +40,24 @@ trait ConsumerActor[K, V] extends Actor {
   private var polling: Boolean = false
   private val pollInterval = 500 millis
   private val minimumBufferSize = 1000
-  private var messageBuffer: MessageBuffer = Seq()
+//  private def emptyMessageBuffer() = MessageBuffer[K,V](Seq())
+//  private var messageBuffer: MessageBuffer[K,V] = emptyMessageBuffer()
 
   override def receive: Receive = {
-    case CreateConsumer(conf) => kafkaConsumer = createConsumer(conf)
+
+    case CreateConsumer(conf) => kafkaConsumer = kafkaConsumer.fold(_ => createConsumer(conf), c => c.asRight)
     case ShutdownConsumer(_) => shutdownConsumer()
     case _: StartConsumer => startConsumer(_)
-    case _: MoveOffset => moveOffset(_)
-    case GetMessages(maxMessages) =>
-      val payload = MessagesPayload(messageBuffer.take(maxMessages))
-      messageBuffer = messageBuffer.takeRight(messageBuffer.size - payload.messages.size)
-      sender ! payload
-    case PollMessages if polling && messageBuffer.size < minimumBufferSize =>
+    case m: MoveOffset => moveOffset(m.offsetPosition, m.topic, m.partition)
+
+    case GetMessages(topic, partition, maxMessages) =>
+//      val payload = MessagesPayload(messageBuffer.filter(topic, partition, maxMessages))
+//      messageBuffer = messageBuffer.takeRight(messageBuffer.size - payload.messages.size)
+//      sender ! payload
+
+    case PollMessages if polling => //&& messageBuffer.size < minimumBufferSize =>
       pollMessages.map(_.map(records => {
-        messageBuffer = messageBuffer ++ records.iterator().asScala.toSeq
+//        messageBuffer = MessageBuffer(messageBuffer.messages ++ records.iterator().asScala.toSeq)
       })).doOnFinish(_ => Task(context.system.scheduler.scheduleOnce(pollInterval, self, PollMessages))).runAsync
   }
 
@@ -85,17 +78,14 @@ trait ConsumerActor[K, V] extends Actor {
       con.unsubscribe()
       con.subscribe(List(start.topic).asJavaCollection)
       polling = true
-      messageBuffer = Seq()
-      self ! PollMessages
-      OffsetPosition(start.offsetStart, start.topic, start.partition)(con)
-        .leftMap(offsetErr => KafkaConsumerError(offsetErr.reason))
-    })
+      (self ! PollMessages).asRight
+    }).flatMap(_ => moveOffset(start.offsetStart, start.topic, start.partition))
   }
 
-  private def moveOffset(moveOffset: MoveOffset): Either[KafkaConsumerError, Unit] = {
+  private def moveOffset(offsetPosition: OffsetPosition, topic: String, partition: Int): Either[KafkaConsumerError, Unit] = {
     kafkaConsumer.map(con => {
-      messageBuffer = Seq()
-      OffsetPosition(moveOffset.offsetPosition, moveOffset.topic, moveOffset.partition)(con)
+//      messageBuffer = emptyMessageBuffer()
+      OffsetPosition(offsetPosition, topic, partition)(con)
         .leftMap(offsetErr => KafkaConsumerError(offsetErr.reason))
     })
   }
@@ -110,7 +100,7 @@ trait ConsumerActor[K, V] extends Actor {
 class StringConsumerActor extends ConsumerActor[String, String] {
   override def createConsumer(conf: ConsumerConfig): ConfiguredKafkaConsumer = {
     try {
-      val consumer = new KafkaConsumer[String, String](conf.props.withLockedOverrides, new StringDeserializer(), new StringDeserializer())
+      val consumer = new KafkaConsumer[String, String](conf.props, new StringDeserializer(), new StringDeserializer())
       consumer.asRight
     } catch {
       case t: Throwable => KafkaConsumerError("Failed to create consumer", Some(t)).asLeft
@@ -124,13 +114,20 @@ class AvroConsumerActor extends ConsumerActor[Any, GenericRecord] {
   }
 }
 
-sealed abstract class ConsumerRouter(context: ActorContext, routerPoolSize: Int) {
-  def props: Props
-  val router = context.actorOf(ConsistentHashingPool(routerPoolSize).props(props))
+class ConsumerSupervisorActor extends Actor {
+
+  var consumers: Map[String, ExistingConsumer] = Map()
+
+  override def supervisorStrategy: SupervisorStrategy = OneForOneStrategy() {
+    case _: Throwable => Stop
+  }
+
+  override def receive: Receive = ???
 }
-final class StringConsumerRouter(context: ActorContext, routerPoolSize: Int) extends ConsumerRouter(context, routerPoolSize) {
-  override def props = Props[StringConsumerActor]
-}
-final class AvroConsumerRouter(context: ActorContext, routerPoolSize: Int) extends ConsumerRouter(context, routerPoolSize) {
-  override def props = Props[AvroConsumerActor]
+
+object ConsumerSupervisorActor {
+
+  case class ExistingConsumer(consumerActor: ActorRef)
+
+
 }

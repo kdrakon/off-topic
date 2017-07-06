@@ -14,6 +14,9 @@ lazy val avroVersion  = "1.8.2"
 
 libraryDependencies ++= Seq(
 
+  // Play
+  guice,
+
   // Core
   "org.apache.kafka" %% "kafka" % kafkaVersion,
   "org.apache.kafka" % "kafka-clients" % kafkaVersion,
@@ -23,5 +26,19 @@ libraryDependencies ++= Seq(
 
   // Misc
   "org.typelevel" %% "cats" % "0.9.0",
-  "io.monix" %% "monix" % "2.3.0"
+  "io.monix" %% "monix" % "2.3.0",
+
+  // Test
+  "org.scalacheck" %% "scalacheck" % "1.13.5" % "test",
+  "org.scalatest" %% "scalatest" % "3.0.3" % "test"
+)
+
+scalacOptions in ThisBuild ++=  Seq(
+  "-target:jvm-1.8",
+  "-feature",
+  "-deprecation",
+  "-unchecked",
+  "-language:implicitConversions",
+  "-language:postfixOps",
+  "-Xfatal-warnings"
 )

@@ -1,4 +1,4 @@
-package models
+package actors.consumer
 
 import cats.implicits._
 import org.apache.kafka.clients.consumer.KafkaConsumer
@@ -9,7 +9,7 @@ sealed trait OffsetPosition
 
 case object FromBeginning extends OffsetPosition
 case object FromEnd extends OffsetPosition
-case class AsPercentage(percentage: Int) extends OffsetPosition
+//case class AsPercentage(percentage: Int) extends OffsetPosition
 case class AtOffset(offset: Long) extends OffsetPosition
 
 object OffsetPosition {
@@ -29,8 +29,8 @@ object OffsetPosition {
         (c: Consumer) => topicPartition(c).fold[OffsetPositionResult](NoTopicOrPartition.asLeft)(tp => c.seekToBeginning(List(tp).asJavaCollection).asRight)
       case FromEnd =>
         (c: Consumer) => topicPartition(c).fold[OffsetPositionResult](NoTopicOrPartition.asLeft)(tp => c.seekToEnd(List(tp).asJavaCollection).asRight)
-      case AsPercentage(percentage) =>
-        ???
+//      case AsPercentage(percentage) =>
+//        ???
       case AtOffset(offset) =>
         (c: Consumer) => topicPartition(c).fold[OffsetPositionResult](NoTopicOrPartition.asLeft)(tp => c.seek(tp, offset).asRight)
     }
