@@ -145,12 +145,13 @@ class OverwritingBufferTest extends WordSpec {
 
     "remove tuples" in {
       val buffer = LongStringBuffer(10)
-      buffer.add(Range(0, 10).toEmptyRecords)
+      buffer.add(Range(0, 10).toEmptyRecords.map(p => p.copy(_2 = p._1.toString)))
 
-      buffer.take(5, 2)
+      val taken = buffer.take(5, 2)
       assert(buffer.orderedKeys == Seq(0, 1, 2, 3, 4, 7, 8, 9))
+      assert(taken == Range(5, 7).map(_.toString))
 
-      assert(buffer.take(9, 10) == Seq(""))
+      assert(buffer.take(9, 10) == Seq("9"))
       assert(buffer.take(9, 10) == Nil)
     }
   }

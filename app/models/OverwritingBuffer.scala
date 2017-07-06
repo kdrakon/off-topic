@@ -55,14 +55,9 @@ trait OverwritingBuffer[K, V] {
   }
 
   def take(start: K, length: Int): Seq[V] = {
-    var forRemoval = Seq[K]()
-    var values = Seq[V]()
-    buffer.tailMap(start).asScala.take(length).foreach(e => {
-      forRemoval ++= Seq(e._1)
-      values ++= Seq(e._2)
-    })
-    forRemoval.foreach(buffer.remove)
-    values
+    val taken = buffer.tailMap(start).asScala.take(length)
+    taken.keys.foreach(buffer.remove)
+    taken.values.toSeq
   }
 
   def size: Int = buffer.size()
