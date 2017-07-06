@@ -1,8 +1,7 @@
 import javax.inject.{Named, Singleton}
 
-import actors.consumer.StringConsumerActor
+import actors.consumer.ConsumerSupervisorActor
 import akka.actor.{ActorRef, ActorSystem, Props}
-import akka.routing.ConsistentHashingPool
 import com.google.inject.{AbstractModule, Provides}
 import com.typesafe.config.Config
 
@@ -26,9 +25,8 @@ class Module extends AbstractModule {
 
   @Provides
   @Singleton
-  @Named("StringConsumerRouter")
-  def stringConsumerRouter(actorSystem: ActorSystem, @Named("OffTopicConfig") offTopicConfig: Config): ActorRef = {
-    actorSystem.actorOf(ConsistentHashingPool(offTopicConfig.getInt("consumer.routerInstances")).props(Props[StringConsumerActor]))
+  @Named("ConsumerSupervisorActor")
+  def consumerSupervisorActor(actorSystem: ActorSystem, @Named("OffTopicConfig") offTopicConfig: Config): ActorRef = {
+    actorSystem.actorOf(Props[ConsumerSupervisorActor])
   }
-
 }

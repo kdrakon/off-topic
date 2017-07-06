@@ -1,27 +1,43 @@
 package controllers
 
-import java.util.UUID
 import javax.inject.{Inject, Named}
 
-import actors.consumer.ConsumerActor.{ConsumerConfig, CreateConsumer}
+import actors.consumer.ConsumerActor.StringConsumer
+import actors.consumer.ConsumerSupervisorActor.ExistingConsumer
 import actors.consumer.{AtOffset, FromBeginning, FromEnd, OffsetPosition}
 import akka.actor.ActorRef
-import play.api.mvc.{InjectedController, Request}
+import akka.pattern._
+import play.api.mvc.{AnyContent, InjectedController, Request}
+
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration._
 
 trait TopicController extends InjectedController {
+  import TopicController._
+  import actors.consumer.ConsumerActor._
 
-  val consumerRouter: ActorRef
+  implicit val timeout = akka.util.Timeout(30 seconds)
+  implicit val executionContext: ExecutionContext
+
+  val consumerType: ConsumerType
+  val consumerSupervisor: ActorRef
   val consumerProps: java.util.Properties
 
-  def renderTopic(topicName: String) = Action { request : Request[_] =>
-    val offset = request.target.queryMap.get("offset").fold[OffsetPosition](FromEnd)(seq => seq.headOption.fold[OffsetPosition](FromEnd)(offsetPosition(_)))
-    val consumerId = request.session.get("consumer_id").fold(UUID.randomUUID().toString)(s => s)
+  def renderTopic(topicName: String) = Action.async { request : Request[AnyContent] =>
+    val offset = FromEnd // request.target.queryMap.get("offset").fold[OffsetPosition](FromEnd)(seq => seq.headOption.fold[OffsetPosition](FromEnd)(offsetPosition(_)))
+    val consumerId = request.session.get("consumer_id").fold(genConsumerId)(s => s)
 
-    consumerRouter ! CreateConsumer(ConsumerConfig(consumerId, consumerProps))
-
-
-    Ok
+    (consumerSupervisor ? CreateConsumer(ConsumerConfig(consumerId, consumerProps, consumerType))).map({
+      case ExistingConsumer(consumerActor) =>
+        consumerActor ! StartConsumer(topicName, offset)
+    }).map(_ => Ok).recover({
+      case _: Throwable => InternalServerError
+    })
   }
+
+}
+
+object TopicController{
 
   val offsetPosition: String => OffsetPosition = {
     case "beginning" => FromBeginning
@@ -33,7 +49,8 @@ trait TopicController extends InjectedController {
         case _: java.lang.NumberFormatException => FromEnd
       }
   }
-
 }
 
-case class StringTopicController @Inject()(@Named("StringConsumerRouter") consumerRouter: ActorRef, consumerProps: java.util.Properties) extends TopicController
+case class StringTopicController @Inject()(@Named("ConsumerSupervisorActor") consumerSupervisor: ActorRef, consumerProps: java.util.Properties, executionContext: ExecutionContext) extends TopicController {
+  override val consumerType = StringConsumer
+}
