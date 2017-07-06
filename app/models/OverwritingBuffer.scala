@@ -1,5 +1,7 @@
 package models
 
+import javax.annotation.concurrent.NotThreadSafe
+
 import scala.collection.JavaConverters._
 
 /**
@@ -18,6 +20,7 @@ import scala.collection.JavaConverters._
   * @tparam K Key type
   * @tparam V Value type
   */
+@NotThreadSafe
 trait OverwritingBuffer[K, V] {
   import OverwritingBuffer._
 
@@ -49,6 +52,17 @@ trait OverwritingBuffer[K, V] {
         if (buffer.size() > maxSize) buffer.remove(nextRemovableKey)
       })
     })
+  }
+
+  def take(start: K, length: Int): Seq[V] = {
+    var forRemoval = Seq[K]()
+    var values = Seq[V]()
+    buffer.tailMap(start).asScala.take(length).foreach(e => {
+      forRemoval ++= Seq(e._1)
+      values ++= Seq(e._2)
+    })
+    forRemoval.foreach(buffer.remove)
+    values
   }
 
   def size: Int = buffer.size()
@@ -87,6 +101,6 @@ object OverwritingBuffer {
 object Buffers {
 
   import org.apache.kafka.clients.consumer.ConsumerRecord
-  class TopicPartitionBuffer[K, V](val maxSize: Int) extends OverwritingBuffer[Long, ConsumerRecord[K, V]]
+  case class TopicPartitionBuffer[K, V](maxSize: Int) extends OverwritingBuffer[Long, ConsumerRecord[K, V]]
 
 }
