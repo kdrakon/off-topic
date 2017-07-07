@@ -7,7 +7,8 @@ import actors.consumer.ConsumerSupervisorActor.ExistingConsumer
 import actors.consumer.{AtOffset, FromBeginning, FromEnd, OffsetPosition}
 import akka.actor.ActorRef
 import akka.pattern._
-import play.api.mvc.{AnyContent, InjectedController, Request}
+import play.api.mvc.{Action, AnyContent, InjectedController, Request}
+import org.apache.kafka.clients.consumer.{ConsumerConfig => KafkaConsumerConfig}
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
@@ -21,20 +22,22 @@ trait TopicController extends InjectedController {
 
   val consumerType: ConsumerType
   val consumerSupervisor: ActorRef
-  val consumerProps: java.util.Properties
+  val baseConsumerProps: java.util.Properties
 
-  def renderTopic(topicName: String) = Action.async { request : Request[AnyContent] =>
+  def renderTopic(topicName: String): Action[AnyContent] = Action.async { request : Request[AnyContent] =>
     val offset = FromEnd // request.target.queryMap.get("offset").fold[OffsetPosition](FromEnd)(seq => seq.headOption.fold[OffsetPosition](FromEnd)(offsetPosition(_)))
     val consumerId = request.session.get("consumer_id").fold(genConsumerId)(s => s)
 
-    (consumerSupervisor ? CreateConsumer(ConsumerConfig(consumerId, consumerProps, consumerType))).map({
+    val consumerProps = genConsumerProps(baseConsumerProps, Map(KafkaConsumerConfig.CLIENT_ID_CONFIG -> consumerId))
+    val consumerConfig = ConsumerConfig(consumerId, consumerProps, consumerType)
+
+    (consumerSupervisor ? CreateConsumer(consumerConfig)).map({
       case ExistingConsumer(consumerActor) =>
         consumerActor ! StartConsumer(topicName, offset)
-    }).map(_ => Ok).recover({
+    }).map(_ => Ok.withSession("consumer_id" -> consumerId)).recover({
       case _: Throwable => InternalServerError
     })
   }
-
 }
 
 object TopicController{
@@ -51,6 +54,6 @@ object TopicController{
   }
 }
 
-case class StringTopicController @Inject()(@Named("ConsumerSupervisorActor") consumerSupervisor: ActorRef, consumerProps: java.util.Properties, executionContext: ExecutionContext) extends TopicController {
+case class StringTopicController @Inject()(@Named("ConsumerSupervisorActor") consumerSupervisor: ActorRef, baseConsumerProps: java.util.Properties, executionContext: ExecutionContext) extends TopicController {
   override val consumerType = StringConsumer
 }

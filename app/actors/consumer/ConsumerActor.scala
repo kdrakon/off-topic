@@ -37,6 +37,13 @@ object ConsumerActor {
 
   def genConsumerId: String = UUID.randomUUID().toString
 
+  def genConsumerProps(baseProps: java.util.Properties, overrides: Map[String, String]): java.util.Properties = {
+    val props = new java.util.Properties()
+    baseProps.stringPropertyNames().asScala.foreach(p => props.put(p, baseProps.get(p)))
+    overrides.foreach(p => props.put(p._1, p._2))
+    props
+  }
+
   implicit class MessageBufferImplicits[K, V](buffers: Map[Int, TopicPartitionBuffer[K, V]]) {
     def totalBufferSize: Int = buffers.foldLeft(0) {
       case (total, (_, buffer)) => total + buffer.size
@@ -71,12 +78,9 @@ trait ConsumerActor[K, V] extends Actor {
 
   override def receive: Receive = {
 
-    case CreateConsumer(conf) =>
-      kafkaConsumer = kafkaConsumer.fold(_ => createConsumer(conf), c => c.asRight)
-      sender ! ExistingConsumer(self)
-
+    case CreateConsumer(conf) => kafkaConsumer = kafkaConsumer.fold(_ => createConsumer(conf), c => c.asRight)
     case ShutdownConsumer(_) => shutdownConsumer()
-    case _: StartConsumer => startConsumer(_)
+    case s: StartConsumer => startConsumer(s)
     case m: MoveOffset => moveOffset(m.offsetPosition, m.topic, Some(m.partition))
 
     case GetMessages(offset, partition, maxMessages) =>
