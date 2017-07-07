@@ -78,10 +78,18 @@ trait ConsumerActor[K, V] extends Actor {
 
   override def receive: Receive = {
 
-    case CreateConsumer(conf) => kafkaConsumer = kafkaConsumer.fold(_ => createConsumer(conf), c => c.asRight)
-    case ShutdownConsumer(_) => shutdownConsumer()
-    case s: StartConsumer => startConsumer(s)
-    case m: MoveOffset => moveOffset(m.offsetPosition, m.topic, Some(m.partition))
+    case CreateConsumer(conf) =>
+      kafkaConsumer = kafkaConsumer.fold(_ => createConsumer(conf), c => c.asRight)
+
+    case ShutdownConsumer(_) =>
+      kafkaConsumer = shutdownConsumer(kafkaConsumer)
+      self ! PoisonPill
+
+    case s: StartConsumer =>
+      startConsumer(s)
+
+    case m: MoveOffset =>
+      moveOffset(m.offsetPosition, m.topic, Some(m.partition))
 
     case GetMessages(offset, partition, maxMessages) =>
       messageBuffers.get(partition).foreach(buffer => {
@@ -95,14 +103,13 @@ trait ConsumerActor[K, V] extends Actor {
 
   def createConsumer(conf: ConsumerConfig): ConfiguredKafkaConsumer
 
-  private def shutdownConsumer(): Unit = {
+  private def shutdownConsumer(kafkaConsumer: ConfiguredKafkaConsumer): ConfiguredKafkaConsumer = {
     kafkaConsumer.foreach(con => {
       con.unsubscribe()
       con.close()
       polling = false
     })
-    kafkaConsumer = KafkaConsumerError("Consumer was shutdown and no longer usable").asLeft
-    self ! PoisonPill
+    KafkaConsumerError("Consumer was shutdown and no longer usable").asLeft
   }
 
   private def startConsumer(start: StartConsumer): Either[KafkaConsumerError, Unit] = {
