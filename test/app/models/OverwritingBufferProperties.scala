@@ -43,20 +43,17 @@ class OverwritingBufferProperties extends Properties(OverwritingBuffer.getClass.
       buffer.add(0, "X")
       val noEviction = buffer.orderedKeys == originalKeys
 
-      // evicted left
       val lastKey = buffer.orderedKeys.tail.reverse.head
       buffer.add(lastKey + 1, "X")
-      val evictedLast = buffer.orderedKeys != originalKeys && !buffer.orderedKeys.contains(lastKey) && buffer.orderedKeys.tail.reverse.head == lastKey + 1
+      val evictedFirst = buffer.orderedKeys != originalKeys && !buffer.orderedKeys.contains(0) && buffer.orderedKeys.tail.reverse.head == lastKey + 1
 
-      // evicted right
       buffer.add(1, "X")
-      val evictedFirst = buffer.orderedKeys != originalKeys && !buffer.orderedKeys.contains(2) && buffer.orderedKeys.head == 0
+      val evictedRight = buffer.orderedKeys != originalKeys && !buffer.orderedKeys.contains(2) && buffer.orderedKeys.head == 1
 
-      // evicted right
       buffer.add(9, "X")
-      val evictedLeft = !buffer.orderedKeys.contains(10)
+      val evictedRightAgain = !buffer.orderedKeys.contains(10)
 
-      all(noEviction, evictedLast, evictedFirst, evictedLeft) :| "evicts records"
+      all(noEviction, evictedFirst, evictedRight, evictedRightAgain) :| "evicts records"
     }
   }
 
@@ -80,7 +77,18 @@ class OverwritingBufferProperties extends Properties(OverwritingBuffer.getClass.
     }
   }
 
-  property("add") = insertsRecords && evictsRecords && overwritesEntirely && overwritesSubset
+  val isKeyDistinct = forAll { (size: Int, singleKey: Long) =>
+    (size > 0) ==> {
+      val buffer = LongStringBuffer(size)
+      val distinctKey = {
+        for (i <- 0 to 10) buffer.add(singleKey, singleKey.toString)
+        buffer.size == 1 && buffer.orderedKeys.count(_ == singleKey) == 1 && buffer.orderedValues.count(_ == singleKey.toString) == 1
+      }
+      all(distinctKey) :| "key-value pairs are distinct"
+    }
+  }
+
+  property("add") = insertsRecords && evictsRecords && overwritesEntirely && overwritesSubset && isKeyDistinct
 
   val randomizedContiguousList =
     for {
@@ -126,12 +134,12 @@ class OverwritingBufferTest extends WordSpec {
       assertThrows[IllegalArgumentException](LongStringBuffer(-1))
     }
 
-    "will evict towards the right then the left" in {
+    "evict towards the right or else the head" in {
       var buffer = LongStringBuffer(10)
 
       buffer.add(Range(0, 10).toEmptyRecords)
       buffer.add(Range(10, 15).toEmptyRecords)
-      assert(buffer.orderedKeys == (Range(0, 5) ++ Range(10, 15)), "overwrote buffer towards left-hand side")
+      assert(buffer.orderedKeys == Range(5, 15), "popped heads off to make space")
 
       buffer.add(Range(0, 10).toEmptyRecords)
       assert(buffer.orderedKeys == Range(0, 10), "overwrote all of buffer")

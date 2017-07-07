@@ -13,8 +13,7 @@ import scala.collection.JavaConverters._
   * the following order:
   *  {{{
   *    1. the tuple with the key closest to the right of the current contiguous subgroup, if it exists
-  *    2. the tuple with the key closest to the left of the current contiguous subgroup, if it exists
-  *    3. if neither 1. or 2. exists, then it will remove the last tuple of the buffer
+  *    2. else, the tuple at the head of the buffer
   *  }}}
   *
   * @tparam K Key type
@@ -43,8 +42,7 @@ trait OverwritingBuffer[K, V] {
 
       def nextRemovableKey: K = {
         lazy val rightKey = lastKey.flatMap(k => Option(buffer.higherKey(k)))
-        lazy val leftKey = firstKey.flatMap(k => Option(buffer.lowerKey(k)))
-        rightKey.orElse(leftKey).fold[K](buffer.lastKey())(k => k)
+        rightKey.fold[K](buffer.firstKey())(k => k)
       }
 
       contiguousKeys.foreach(key => {
