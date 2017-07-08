@@ -33,7 +33,7 @@ trait TopicController extends InjectedController {
 
     (consumerSupervisor ? CreateConsumer(consumerConfig)).map({
       case ExistingConsumer(consumerActor) =>
-        consumerActor ! StartConsumer(topicName, offset)
+//        consumerActor ! StartConsumer(topicName, offset)
     }).map(_ => Ok.withSession("consumer_id" -> consumerId)).recover({
       case _: Throwable => InternalServerError
     })

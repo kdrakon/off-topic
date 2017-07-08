@@ -1,13 +1,12 @@
 package components
 
 import actors.consumer.OffsetPosition
-import cats.data.EitherT
 import cats.implicits._
-import models.Buffers.TopicPartitionBuffer
 import monix.eval.{MVar, Task}
 import monix.reactive.Observable
 import monix.reactive.observers.Subscriber
 import org.apache.kafka.clients.consumer.{ConsumerRecords, KafkaConsumer}
+import org.reactivestreams.{Subscriber => ReactiveSubscriber}
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
@@ -18,10 +17,10 @@ object KafkaConsumerStream {
 
   type ConfiguredKafkaTopic = Either[KafkaConsumerError, String]
   type ConfiguredKafkaConsumer[K, V] = Either[KafkaConsumerError, KafkaConsumer[K, V]]
-  type ConfiguredKafkaConsumerStream[K, V] = EitherT[Task, KafkaConsumerError, KafkaConsumerStream[K, V]]
+  type ConfiguredKafkaConsumerStream[K, V] = Either[KafkaConsumerError, KafkaConsumerStream[K, V]]
 
-  def create[K, V](kafkaConsumer: ConfiguredKafkaConsumer[K, V])(implicit subscriber: Subscriber[Task[ConsumerRecords[K, V]]]): ConfiguredKafkaConsumerStream[K, V] = {
-    val stream = kafkaConsumer.flatMap { kc =>
+  def create[K, V](kafkaConsumer: ConfiguredKafkaConsumer[K, V])(implicit subscriber: ReactiveSubscriber[Task[ConsumerRecords[K, V]]]): ConfiguredKafkaConsumerStream[K, V] = {
+    kafkaConsumer.flatMap { kc =>
 
       val _kafkaConsumerMVar = MVar(kc)
       val pollTimeout = 5 seconds
@@ -37,32 +36,30 @@ object KafkaConsumerStream {
         }
       })
 
-      val cancelable = observable.subscribe(subscriber)
+      val subscription = observable.subscribe()
+      Subscriber.fromReactiveSubscriber(subscriber, subscription)
 
       val stream: KafkaConsumerStream[K, V] = new KafkaConsumerStream[K, V] {
         override val kafkaConsumerMVar: MVar[KafkaConsumer[K, V]] = _kafkaConsumerMVar
         override def shutdown(): Either[KafkaConsumerError, Unit] = {
           streamCancelled = true
-          cancelable.cancel().asRight
+          subscription.cancel().asRight
         }
       }
 
       stream.asRight
     }
-
-    EitherT(Task.now(stream))
   }
 }
 
-trait KafkaConsumerStream[K, V] {
+sealed trait KafkaConsumerStream[K, V] {
   import KafkaConsumerStream._
 
-  private[KafkaConsumerStream] val kafkaConsumerMVar: MVar[KafkaConsumer[K, V]]
-  private[KafkaConsumerStream] var messageBuffers = Map[Int, TopicPartitionBuffer[K, V]]()
+  val kafkaConsumerMVar: MVar[KafkaConsumer[K, V]]
 
   def shutdown(): Either[KafkaConsumerError, Unit]
 
-  def setTopic(topic: ConfiguredKafkaTopic, newTopic: String): ConfiguredKafkaConsumerStream[K, V] = {
+  def setTopic(topic: ConfiguredKafkaTopic, newTopic: String): Task[ConfiguredKafkaConsumerStream[K, V]] = {
     val stream = this.asRight
     val task: Task[Either[KafkaConsumerError, KafkaConsumerStream[K, V]]] =
       kafkaConsumerMVar.take.flatMap(consumer => {
@@ -90,10 +87,10 @@ trait KafkaConsumerStream[K, V] {
         .onErrorHandle(t => KafkaConsumerError("Failed to set topic on consumer", Some(t)).asLeft)
         .map(_ => stream)
 
-    EitherT(task)
+    task
   }
 
-  def moveOffset(offsetPosition: OffsetPosition, topic: String, partition: Option[Int] = None): ConfiguredKafkaConsumerStream[K, V] = {
+  def moveOffset(offsetPosition: OffsetPosition, topic: String, partition: Option[Int] = None): Task[ConfiguredKafkaConsumerStream[K, V]] = {
     val stream = this.asRight
     val task: Task[Either[KafkaConsumerError, KafkaConsumerStream[K, V]]] =
       kafkaConsumerMVar.take.flatMap(consumer => {
@@ -108,6 +105,6 @@ trait KafkaConsumerStream[K, V] {
         .onErrorHandle(t => KafkaConsumerError("Failed to move offset of consumer", Some(t)).asLeft)
         .map(_ => stream)
 
-    EitherT(task)
+    task
   }
 }
