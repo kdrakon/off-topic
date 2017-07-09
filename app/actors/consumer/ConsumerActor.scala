@@ -8,13 +8,13 @@ import akka.actor.SupervisorStrategy.Stop
 import akka.actor.{Actor, ActorRef, OneForOneStrategy, PoisonPill, Props, SupervisorStrategy}
 import cats.implicits._
 import components.KafkaConsumerStream
-import components.KafkaConsumerStream.{ConfiguredKafkaConsumer, ConfiguredKafkaConsumerStream, KafkaConsumerError}
-import monix.eval.Task
+import components.KafkaConsumerStream._
+import monix.eval.{MVar, Task}
 import monix.execution.Scheduler
 import org.apache.avro.generic.GenericRecord
 import org.apache.kafka.clients.consumer.{ConsumerRecord, ConsumerRecords, KafkaConsumer}
 import org.apache.kafka.common.serialization.StringDeserializer
-import org.reactivestreams.{Subscriber => ReactiveSubscriber}
+import org.reactivestreams.{Subscription, Subscriber => ReactiveSubscriber}
 
 import scala.collection.JavaConverters._
 
@@ -26,12 +26,12 @@ object ConsumerActor {
 
   case class ConsumerConfig(consumerId: String, props: Properties, consumerType: ConsumerType)
   case class CreateConsumer(conf: ConsumerConfig)
-  case class ShutdownConsumer(consumerId: String)
-//  case class StartConsumer(topic: String, offsetStart: OffsetPosition)
+  case object ShutdownConsumer
+  case class StartConsumer(topic: String, offsetStart: OffsetPosition)
   case class MoveOffset(topic: String, partition: Int, offsetPosition: OffsetPosition)
 
   case object GetMessages
-  case class MessagesPayload[K,V](payload: Seq[ConsumerRecord[K, V]])
+  case class MessagesPayload[K,V](payload: ConsumerRecords[K, V])
   case object EndOfMessageBuffer
 
   def genConsumerId: String = UUID.randomUUID().toString
@@ -49,14 +49,38 @@ trait ConsumerActor[K, V] extends Actor {
 
   implicit private val scheduler = Scheduler(context.dispatcher)
   private var kafkaConsumerStream: ConfiguredKafkaConsumerStream[K, V] = KafkaConsumerError("Stream not yet created").asLeft
-  implicit private val messageSubscriber: ReactiveSubscriber[Task[ConsumerRecords[K, V]]] = ???
+  private var kafkaTopic: ConfiguredKafkaTopic = KafkaConsumerError("Topic not yet set").asLeft
+  implicit private val messageSubscriber: ReactiveSubscriber[PolledConsumerRecords[K, V]] = new ReactiveSubscriber[PolledConsumerRecords[K, V]] {
+    override def onError(t: Throwable): Unit = ???
+    override def onComplete(): Unit = self ! ShutdownConsumer
+    override def onNext(t: PolledConsumerRecords[K, V]): Unit = t.map(cr => MessagesPayload(cr)).foreach(mp => outboundMessages.put(mp).runAsync)
+    override def onSubscribe(s: Subscription): Unit = messageSubscription = s.asRight
+  }
+  private var messageSubscription: Either[KafkaConsumerError, Subscription] = KafkaConsumerError("No subscription").asLeft
+  private val outboundMessages: MVar[MessagesPayload[K, V]] = MVar.empty
 
   override def receive: Receive = {
 
     case CreateConsumer(conf) =>
       kafkaConsumerStream = kafkaConsumerStream.fold(_ => KafkaConsumerStream.create(createConsumer(conf)), stream => stream.asRight)
 
-    case ShutdownConsumer(_) =>
+    case StartConsumer(topic, offsetPosition) =>
+      val source = sender
+      kafkaConsumerStream.map(stream => {
+        val task = for {
+          _1 <- stream.setTopic(kafkaTopic, topic) // TODO set kafkaTopic
+          _2 <- stream.moveOffset(offsetPosition, topic)
+          _3 <- Task(stream.start())
+        } yield {
+          _3
+        }
+        task.doOnFinish({
+          case None => Task(self.tell(GetMessages, source))
+          case Some(t) => ???
+        }).runAsync
+      })
+
+    case ShutdownConsumer =>
       kafkaConsumerStream.map(_.shutdown())
       self ! PoisonPill
 
@@ -64,6 +88,9 @@ trait ConsumerActor[K, V] extends Actor {
       kafkaConsumerStream.map(_.moveOffset(m.offsetPosition, m.topic, Some(m.partition)).runAsync)
 
     case GetMessages =>
+      val recipient = sender
+      messageSubscription.map(_.request(1L))
+      outboundMessages.take.map(m => recipient ! m).runAsync
 //      messageBuffers.get(partition).foreach(buffer => {
 //        sender ! MessagesPayload(buffer.take(offset, maxMessages))
 //      })
