@@ -1,3 +1,4 @@
 
 
-GET /topic/:topicName/string controllers.StringTopicController.renderTopic(topicName: String)
+#GET /topic/:topicName/string controllers.StringTopicController.renderTopic(topicName: String)
+GET /topic/:topicName/string controllers.StringTopicController.topicSocket(topicName: String)

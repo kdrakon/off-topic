@@ -1,14 +1,14 @@
 package components
 
 import actors.consumer.OffsetPosition
+import akka.actor.ActorRef
 import cats.implicits._
+import models.ConsumerMessages.{KafkaConsumerError, MessagesPayload}
 import monix.eval.{MVar, Task}
-import monix.execution.Ack.Continue
+import monix.execution.Ack.{Continue, Stop}
 import monix.execution.Scheduler
 import monix.reactive.Observable
-import monix.reactive.observers.Subscriber
 import org.apache.kafka.clients.consumer.{ConsumerRecords, KafkaConsumer}
-import org.reactivestreams.{Subscriber => ReactiveSubscriber}
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
@@ -16,14 +16,12 @@ import scala.util.{Failure, Success}
 
 object KafkaConsumerStream {
 
-  case class KafkaConsumerError(reason: String, error: Option[Throwable] = None)
-
   type ConfiguredKafkaTopic = Either[KafkaConsumerError, String]
   type ConfiguredKafkaConsumer[K, V] = Either[KafkaConsumerError, KafkaConsumer[K, V]]
   type ConfiguredKafkaConsumerStream[K, V] = Either[KafkaConsumerError, KafkaConsumerStream[K, V]]
   type PolledConsumerRecords[K, V] = Either[KafkaConsumerError, ConsumerRecords[K, V]]
 
-  def create[K, V](kafkaConsumer: ConfiguredKafkaConsumer[K, V])(implicit subscriber: ReactiveSubscriber[PolledConsumerRecords[K, V]], scheduler: Scheduler): ConfiguredKafkaConsumerStream[K, V] = {
+  def create[K, V](kafkaConsumer: ConfiguredKafkaConsumer[K, V])(implicit scheduler: Scheduler): ConfiguredKafkaConsumerStream[K, V] = {
     kafkaConsumer.flatMap { kc =>
 
       val _kafkaConsumerMVar = MVar(kc)
@@ -49,11 +47,16 @@ object KafkaConsumerStream {
       val stream: KafkaConsumerStream[K, V] = new KafkaConsumerStream[K, V] {
         override val kafkaConsumerMVar: MVar[KafkaConsumer[K, V]] = _kafkaConsumerMVar
         override def shutdown(): Either[KafkaConsumerError, Unit] = (streamCancelled = true).asRight
-        override def start(): Either[KafkaConsumerError, Unit] = {
-//          Task(Subscriber.fromReactiveSubscriber(subscriber, observable.subscribe())).runAsync
-          observable.subscribe(cr => {
-            println(cr.right.get.count())
-            Task(Continue).runAsync
+        override def start(subscriber: ActorRef): Either[KafkaConsumerError, Unit] = {
+          observable.subscribe(polled => {
+            polled match {
+              case Right(records) =>
+                subscriber ! MessagesPayload(records)
+                Task(Continue).runAsync
+              case Left(err) =>
+                subscriber ! err
+                Task(Stop).runAsync
+            }
           })
           ().asRight
         }
@@ -69,7 +72,7 @@ sealed trait KafkaConsumerStream[K, V] {
 
   val kafkaConsumerMVar: MVar[KafkaConsumer[K, V]]
 
-  def start(): Either[KafkaConsumerError, Unit]
+  def start(subscriber: ActorRef): Either[KafkaConsumerError, Unit]
   def shutdown(): Either[KafkaConsumerError, Unit]
 
   def setTopic(topic: ConfiguredKafkaTopic, newTopic: String): Task[ConfiguredKafkaConsumerStream[K, V]] = {

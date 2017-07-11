@@ -1,7 +1,5 @@
-import javax.inject.{Named, Singleton}
+import javax.inject.Named
 
-import actors.consumer.ConsumerSupervisorActor
-import akka.actor.{ActorRef, ActorSystem, Props}
 import com.google.inject.{AbstractModule, Provides}
 import com.typesafe.config.Config
 
@@ -21,12 +19,5 @@ class Module extends AbstractModule {
     val props = new java.util.Properties()
     defaultProps.asScala.foreach(kv => props.put(kv._1, kv._2.toString))
     props
-  }
-
-  @Provides
-  @Singleton
-  @Named("ConsumerSupervisorActor")
-  def consumerSupervisorActor(actorSystem: ActorSystem, @Named("OffTopicConfig") offTopicConfig: Config): ActorRef = {
-    actorSystem.actorOf(Props[ConsumerSupervisorActor])
   }
 }
