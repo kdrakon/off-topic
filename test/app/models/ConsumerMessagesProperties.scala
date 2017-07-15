@@ -27,27 +27,30 @@ class ConsumerMessagesProperties extends Properties(ConsumerMessages.getClass.ge
     })
   }
 
-  val CreateConsumerFormat = forAll { (consumerId: String, properties: Map[String, String]) =>
+  val CreateConsumerFormat = forAll { (consumerId: String, properties: Map[String, String], topic: String) =>
     val props = new java.util.Properties()
     properties.foreach({
       case (k, v) => props.setProperty(k, v)
     })
     assert(JavaPropertiesFormat.reads(JavaPropertiesFormat.writes(props)).get == props)
-    writesAndReadsMessage(CreateConsumer(ConsumerConfig(consumerId, props, StringConsumer)))
+    writesAndReadsMessage(CreateConsumer(ConsumerConfig(consumerId, topic, props, StringConsumer)))
   }
 
   val ShutdownConsumerFormat = all(writesAndReadsMessage(ShutdownConsumer))
 
-  val StartConsumerFormat = forAll { (topic: String, offset: Long) =>
-    writesAndReadsMessage(StartConsumer(topic, FromBeginning))
-    writesAndReadsMessage(StartConsumer(topic, FromEnd))
-    writesAndReadsMessage(StartConsumer(topic, AtOffset(offset)))
+  val StartConsumerFormat = forAll { (offset: Long) =>
+    writesAndReadsMessage(StartConsumer(FromBeginning))
+    writesAndReadsMessage(StartConsumer(FromEnd))
+    writesAndReadsMessage(StartConsumer(AtOffset(offset)))
   }
 
-  val MoveOffsetFormat = forAll { (topic: String, partition: Int, offset: Long) =>
-    writesAndReadsMessage(MoveOffset(topic, partition, FromBeginning))
-    writesAndReadsMessage(MoveOffset(topic, partition, FromEnd))
-    writesAndReadsMessage(MoveOffset(topic, partition, AtOffset(offset)))
+  val MoveOffsetFormat = forAll { (partition: Int, offset: Long) =>
+    writesAndReadsMessage(MoveOffset(AllPartitions, FromBeginning))
+    writesAndReadsMessage(MoveOffset(APartition(partition), FromBeginning))
+    writesAndReadsMessage(MoveOffset(AllPartitions, FromEnd))
+    writesAndReadsMessage(MoveOffset(APartition(partition), FromEnd))
+    writesAndReadsMessage(MoveOffset(AllPartitions, AtOffset(offset)))
+    writesAndReadsMessage(MoveOffset(APartition(partition), AtOffset(offset)))
   }
 
   val MessagesPayloadFormat = forAll { (topics: List[String], partitions: List[Int], keys: List[String]) =>

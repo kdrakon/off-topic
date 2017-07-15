@@ -16,14 +16,17 @@ object ConsumerMessages {
 
   case class KafkaConsumerError(reason: String, error: Option[Throwable] = None) extends ConsumerMessage
 
-  case class ConsumerConfig(consumerId: String, props: Properties, consumerType: ConsumerType)
+  case class ConsumerConfig(consumerId: String, topic: String, props: Properties, consumerType: ConsumerType)
   case class CreateConsumer(conf: ConsumerConfig) extends ConsumerMessage
 
   case object ShutdownConsumer extends ConsumerMessage
 
-  case class StartConsumer(topic: String, offsetStart: OffsetPosition) extends ConsumerMessage
+  case class StartConsumer(offsetStart: OffsetPosition) extends ConsumerMessage
 
-  case class MoveOffset(topic: String, partition: Int, offsetPosition: OffsetPosition) extends ConsumerMessage
+  sealed trait Partition
+  case object AllPartitions extends Partition
+  case class APartition(number: Int) extends Partition
+  case class MoveOffset(partition: Partition, offsetPosition: OffsetPosition) extends ConsumerMessage
 
   case class MessagesPayload[K,V](payload: ConsumerRecords[K, V]) extends ConsumerMessage
 
@@ -85,6 +88,18 @@ object ConsumerMessages {
         case FromEnd => JsString("FromEnd")
         case AtOffset(offset) => JsNumber(offset)
       })
+    )
+
+    implicit val PartitionFormat: Format[Partition] = Format(
+      Reads[Partition] {
+        case JsString("AllPartitions") => JsSuccess(AllPartitions)
+        case JsNumber(n) => JsSuccess(APartition(n.toInt))
+        case _ => JsError("Not a valid Partition")
+      },
+      Writes[Partition] {
+        case AllPartitions => JsString("AllPartitions")
+        case APartition(n) => JsNumber(n)
+      }
     )
 
     implicit val TopicPartitionFormat: Format[TopicPartition] = Format(

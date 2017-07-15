@@ -3,7 +3,7 @@ package components
 import actors.consumer.OffsetPosition
 import akka.actor.ActorRef
 import cats.implicits._
-import models.ConsumerMessages.{ KafkaConsumerError, MessagesPayload }
+import models.ConsumerMessages._
 import monix.eval.{ MVar, Task }
 import monix.execution.Scheduler
 import monix.reactive.Observable
@@ -68,56 +68,54 @@ sealed trait KafkaConsumerStream[K, V] {
   import KafkaConsumerStream._
 
   val kafkaConsumerMVar: MVar[KafkaConsumer[K, V]]
+  private var kafkaTopic: ConfiguredKafkaTopic = KafkaConsumerError("Topic not yet set").asLeft
 
   def start(subscriber: ActorRef): Either[KafkaConsumerError, Unit]
   def shutdown(): Either[KafkaConsumerError, Unit]
 
-  def setTopic(topic: ConfiguredKafkaTopic, newTopic: String): Task[ConfiguredKafkaConsumerStream[K, V]] = {
-    val stream = this.asRight
-    val task: Task[Either[KafkaConsumerError, KafkaConsumerStream[K, V]]] =
-      kafkaConsumerMVar.take.flatMap(consumer => {
+  def setTopic(newTopic: String): Task[ConfiguredKafkaTopic] = {
+    def error[T <: Throwable](t: T) = KafkaConsumerError(s"Failed to subscribe to topic $newTopic", Some(t)).asLeft
+    kafkaConsumerMVar.take.flatMap(consumer => {
 
-        def subscribe(): Unit = {
+      def subscribe(): ConfiguredKafkaTopic = {
+        try {
           consumer.unsubscribe()
           consumer.subscribe(List(newTopic).asJavaCollection)
+          newTopic.asRight
+        } catch {
+          case t: Throwable => error(t)
         }
+      }
 
-        topic match {
-          case Left(_) =>
+      kafkaTopic = kafkaTopic match {
+        case Left(_) =>
+          subscribe()
+        case Right(existing) =>
+          if (existing != newTopic) {
             subscribe()
-            topic.asRight
-          case Right(existing) =>
-            if (existing != newTopic) {
-              subscribe()
-              topic.asRight
-            } else {
-              existing.asRight
-            }
-        }
+          } else {
+            existing.asRight
+          }
+      }
 
-        kafkaConsumerMVar.put(consumer)
-      })
-        .onErrorHandle(t => KafkaConsumerError("Failed to set topic on consumer", Some(t)).asLeft)
-        .map(_ => stream)
+      kafkaConsumerMVar.put(consumer).map(_ => kafkaTopic)
 
-    task
+    }).onErrorHandle(error)
   }
 
-  def moveOffset(offsetPosition: OffsetPosition, topic: String, partition: Option[Int] = None): Task[ConfiguredKafkaConsumerStream[K, V]] = {
-    val stream = this.asRight
-    val task: Task[Either[KafkaConsumerError, KafkaConsumerStream[K, V]]] =
-      kafkaConsumerMVar.take.flatMap(consumer => {
+  def moveOffset(offsetPosition: OffsetPosition, topic: String, partition: Partition = AllPartitions): Task[Either[KafkaConsumerError, List[Unit]]] = {
+    kafkaConsumerMVar.take.flatMap(consumer => {
+      val partitions = partition match {
+        case AllPartitions => consumer.assignment().asScala.map(_.partition()).toSeq
+        case APartition(p) => Seq(p)
+      }
 
-        partition.fold(consumer.assignment().asScala.map(_.partition()).toSeq)(Seq(_)).map(p => {
-          OffsetPosition(offsetPosition, topic, p)(consumer)
-            .leftMap(offsetErr => KafkaConsumerError(offsetErr.reason))
-        })
+      val offset = partitions.map(p => {
+        OffsetPosition(offsetPosition, topic, p)(consumer).leftMap(offsetErr => KafkaConsumerError(offsetErr.reason))
+      }).toList.sequenceU
 
-        kafkaConsumerMVar.put(consumer)
-      })
-        .onErrorHandle(t => KafkaConsumerError("Failed to move offset of consumer", Some(t)).asLeft)
-        .map(_ => stream)
+      kafkaConsumerMVar.put(consumer).map(_ => offset)
 
-    task
+    }).onErrorHandle(t => KafkaConsumerError("Failed to move offset of consumer", Some(t)).asLeft)
   }
 }
