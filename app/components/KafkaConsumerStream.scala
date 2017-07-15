@@ -3,16 +3,15 @@ package components
 import actors.consumer.OffsetPosition
 import akka.actor.ActorRef
 import cats.implicits._
-import models.ConsumerMessages.{KafkaConsumerError, MessagesPayload}
-import monix.eval.{MVar, Task}
-import monix.execution.Ack.{Continue, Stop}
+import models.ConsumerMessages.{ KafkaConsumerError, MessagesPayload }
+import monix.eval.{ MVar, Task }
 import monix.execution.Scheduler
 import monix.reactive.Observable
-import org.apache.kafka.clients.consumer.{ConsumerRecords, KafkaConsumer}
+import org.apache.kafka.clients.consumer.{ ConsumerRecords, KafkaConsumer }
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
-import scala.util.{Failure, Success}
+import scala.util.{ Failure, Success }
 
 object KafkaConsumerStream {
 
@@ -30,6 +29,7 @@ object KafkaConsumerStream {
 
       val observable = Observable.fromIterator(new Iterator[PolledConsumerRecords[K, V]] {
         override def hasNext: Boolean = !streamCancelled
+
         override def next(): PolledConsumerRecords[K, V] = {
           val task = _kafkaConsumerMVar.take.flatMap(consumer => {
             val records = consumer.poll(pollTimeout.toMillis)
@@ -42,21 +42,18 @@ object KafkaConsumerStream {
             case None => KafkaConsumerError("Unknown error encountered polling for ConsumerRecords").asLeft
           }
         }
-      })
+      }).filter(_.fold[Boolean](_ => true, !_.isEmpty)) // remove only empty results
 
       val stream: KafkaConsumerStream[K, V] = new KafkaConsumerStream[K, V] {
         override val kafkaConsumerMVar: MVar[KafkaConsumer[K, V]] = _kafkaConsumerMVar
         override def shutdown(): Either[KafkaConsumerError, Unit] = (streamCancelled = true).asRight
         override def start(subscriber: ActorRef): Either[KafkaConsumerError, Unit] = {
-          observable.subscribe(polled => {
-            polled match {
-              case Right(records) =>
-                subscriber ! MessagesPayload(records)
-                Task(Continue).runAsync
-              case Left(err) =>
-                subscriber ! err
-                Task(Stop).runAsync
-            }
+          observable.foreach({
+            case Right(records) =>
+              subscriber ! MessagesPayload(records)
+            case Left(err) =>
+              subscriber ! err
+              streamCancelled = true
           })
           ().asRight
         }

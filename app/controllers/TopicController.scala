@@ -1,27 +1,26 @@
 package controllers
 
-import javax.inject.{Inject, Named}
+import javax.inject.Inject
 
-import actors.consumer.ConsumerActor.StringConsumer
+import actors.consumer.ConsumerActor.{ AvroConsumer, ConsumerType, StringConsumer }
 import actors.consumer._
-import akka.actor.{ActorRef, ActorSystem, Props}
+import akka.actor.{ ActorRef, ActorSystem, Props }
 import akka.stream.Materializer
 import cats.implicits._
-import models.ConsumerMessages.ConsumerMessage
+import models.ConsumerMessages.{ ConsumerConfig, ConsumerMessage }
 import monix.eval.Task
 import monix.execution.Scheduler
-import org.apache.kafka.clients.consumer.{ConsumerConfig => KafkaConsumerConfig}
+import org.apache.kafka.clients.consumer.{ ConsumerConfig => KafkaConsumerConfig }
 import play.api.libs.streams.ActorFlow
 import play.api.mvc.WebSocket.MessageFlowTransformer
 import play.api.mvc._
 
 import scala.concurrent.ExecutionContext
-import scala.concurrent.duration._
 
 trait TopicController extends InjectedController {
+  import TopicController._
   import actors.consumer.ConsumerActor._
 
-  implicit val timeout = akka.util.Timeout(30 seconds)
   implicit val actorSystem: ActorSystem
   implicit val mat: Materializer
   implicit val executionContext: ExecutionContext
@@ -30,29 +29,17 @@ trait TopicController extends InjectedController {
   val consumerType: ConsumerType
   val baseConsumerProps: java.util.Properties
 
-//  def renderTopic(topicName: String): Action[AnyContent] = Action.async { request : Request[AnyContent] =>
-//    val offset = FromEnd // request.target.queryMap.get("offset").fold[OffsetPosition](FromEnd)(seq => seq.headOption.fold[OffsetPosition](FromEnd)(offsetPosition(_)))
-//    val consumerId = request.session.get("consumer_id").fold(genConsumerId)(s => s)
-//
-//    val consumerProps = genConsumerProps(baseConsumerProps, Map(KafkaConsumerConfig.CLIENT_ID_CONFIG -> consumerId))
-//    val consumerConfig = ConsumerConfig(consumerId, consumerProps, consumerType)
-//
-//    (consumerSupervisor ? CreateConsumer(consumerConfig)).map({
-//      case ExistingConsumer(consumerActor) =>
-//        consumerActor ! StartConsumer(topicName, offset)
-//    }).map(_ => Ok.withSession("consumer_id" -> consumerId)).recover({
-//      case _: Throwable => InternalServerError
-//    })
-//  }
-
   import models.ConsumerMessages.jsonformats._
   implicit val messageFlowTransformer = MessageFlowTransformer.jsonMessageFlowTransformer[ConsumerMessage, ConsumerMessage]
 
   def topicSocket(topicName: String): WebSocket = WebSocket.acceptOrResult[ConsumerMessage, ConsumerMessage] { request =>
+
+    val consumerId = request.session.get("consumer_id").fold(genConsumerId)(s => s)
+    val consumerProps = genConsumerProps(baseConsumerProps, Map(KafkaConsumerConfig.CLIENT_ID_CONFIG -> consumerId))
+    val consumerConfig = ConsumerConfig(consumerId, consumerProps, consumerType)
+
     Task {
-      ActorFlow.actorRef(outboundSocketActor => {
-        Props(classOf[StringConsumerActor], outboundSocketActor)
-      }).asRight
+      ActorFlow.actorRef(outboundSocketActor => props(consumerType, outboundSocketActor, consumerConfig)).asRight
     }.runAsync
   }
 }
@@ -69,6 +56,14 @@ object TopicController{
         case _: java.lang.NumberFormatException => FromEnd
       }
   }
+
+  def props(consumerType: ConsumerType, outboundSocketActor: ActorRef, consumerConfig: ConsumerConfig): Props = {
+    val actorClass = consumerType match {
+      case StringConsumer => classOf[StringConsumerActor]
+      case AvroConsumer => classOf[AvroConsumerActor]
+    }
+    Props(actorClass, outboundSocketActor, consumerConfig)
+  }
 }
 
 case class StringTopicController @Inject()
@@ -79,6 +74,18 @@ case class StringTopicController @Inject()
     _mat: Materializer
   ) extends TopicController {
   override val consumerType = StringConsumer
+  override implicit val actorSystem = _actorSystem
+  override implicit val mat = _mat
+}
+
+case class AvroTopicController @Inject()
+(
+  baseConsumerProps: java.util.Properties,
+  executionContext: ExecutionContext,
+  _actorSystem: ActorSystem,
+  _mat: Materializer
+  ) extends TopicController {
+  override val consumerType = AvroConsumer
   override implicit val actorSystem = _actorSystem
   override implicit val mat = _mat
 }

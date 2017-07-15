@@ -33,7 +33,8 @@ object ConsumerActor {
 
 trait ConsumerActor[K, V] extends Actor {
 
-  val outboundSocketActor: ActorRef
+  protected val outboundSocketActor: ActorRef
+  protected val consumerConfig: ConsumerConfig
 
   implicit private val scheduler = Scheduler(context.dispatcher)
   private var kafkaConsumerStream: ConfiguredKafkaConsumerStream[K, V] = KafkaConsumerError("Stream not yet created").asLeft
@@ -41,24 +42,31 @@ trait ConsumerActor[K, V] extends Actor {
 
   def createConsumer(conf: ConsumerConfig): ConfiguredKafkaConsumer[K, V]
 
+  override def preStart(): Unit = {
+    self ! CreateConsumer(consumerConfig)
+  }
+
+  override def postStop(): Unit = {
+    kafkaConsumerStream.map(_.shutdown()) // in the event that the client abruptly disconnected
+  }
+
   override def receive: Receive = {
 
     case CreateConsumer(conf) =>
       kafkaConsumerStream = kafkaConsumerStream.fold(_ => KafkaConsumerStream.create(createConsumer(conf)), stream => stream.asRight)
 
     case StartConsumer(topic, offsetPosition) =>
-      val source = sender
       kafkaConsumerStream.map(stream => {
         val task = for {
           _1 <- stream.setTopic(kafkaTopic, topic) // TODO set kafkaTopic
           _2 <- stream.moveOffset(offsetPosition, topic)
-          _3 <- Task(stream.start(???))
+          _3 <- Task(stream.start(outboundSocketActor))
         } yield {
           _3
         }
         task.doOnFinish({
-          case None => ???
-          case Some(t) => ???
+          case None => Task.now((): Unit) // do nothing
+          case Some(t) => Task(outboundSocketActor ! KafkaConsumerError("Encountered error starting Kafka Consumer stream", Some(t)))
         }).runAsync
       })
 
@@ -71,7 +79,7 @@ trait ConsumerActor[K, V] extends Actor {
   }
 }
 
-class StringConsumerActor(val outboundSocketActor: ActorRef) extends ConsumerActor[String, String] {
+class StringConsumerActor(val outboundSocketActor: ActorRef, val consumerConfig: ConsumerConfig) extends ConsumerActor[String, String] {
   override def createConsumer(conf: ConsumerConfig): ConfiguredKafkaConsumer[String, String] = {
     try {
       val consumer = new KafkaConsumer[String, String](conf.props, new StringDeserializer(), new StringDeserializer())
@@ -82,7 +90,7 @@ class StringConsumerActor(val outboundSocketActor: ActorRef) extends ConsumerAct
   }
 }
 
-class AvroConsumerActor(val outboundSocketActor: ActorRef) extends ConsumerActor[Any, GenericRecord] {
+class AvroConsumerActor(val outboundSocketActor: ActorRef, val consumerConfig: ConsumerConfig) extends ConsumerActor[Any, GenericRecord] {
   override def createConsumer(conf: ConsumerConfig): ConfiguredKafkaConsumer[Any, GenericRecord] = {
     ???
   }
