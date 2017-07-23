@@ -38,7 +38,6 @@ trait ConsumerActor[K, V] extends Actor {
 
   implicit private val scheduler = Scheduler(context.dispatcher)
   private var kafkaConsumerStream: ConfiguredKafkaConsumerStream[K, V] = KafkaConsumerError("Stream not yet created").asLeft
-  private var kafkaTopic: ConfiguredKafkaTopic = KafkaConsumerError("Topic not yet set").asLeft
 
   def createConsumer(conf: ConsumerConfig): ConfiguredKafkaConsumer[K, V]
 
@@ -47,7 +46,7 @@ trait ConsumerActor[K, V] extends Actor {
   }
 
   override def postStop(): Unit = {
-    kafkaConsumerStream.map(_.shutdown()) // in the event that the client abruptly disconnected
+    kafkaConsumerStream.map(_.stop()) // in the event that the client abruptly disconnected
   }
 
   override def receive: Receive = {
@@ -55,27 +54,33 @@ trait ConsumerActor[K, V] extends Actor {
     case CreateConsumer(conf) =>
       kafkaConsumerStream = kafkaConsumerStream.fold(_ => KafkaConsumerStream.create(createConsumer(conf)), stream => stream.asRight)
 
-    case StartConsumer(topic, offsetPosition) =>
+    case StartConsumer(offsetPosition) =>
       kafkaConsumerStream.map(stream => {
-        val task = for {
-          _1 <- stream.setTopic(kafkaTopic, topic) // TODO set kafkaTopic
-          _2 <- stream.moveOffset(offsetPosition, topic)
-          _3 <- Task(stream.start(outboundSocketActor))
-        } yield {
-          _3
-        }
-        task.doOnFinish({
+
+        def rightToUnit[T](e: Either[KafkaConsumerError, T]) = e.map(_ => ())
+
+        val setup = Task.sequence(List(stream.setTopic(consumerConfig.topic).map(rightToUnit), stream.moveOffset(offsetPosition, consumerConfig.topic).map(rightToUnit)))
+        val start = setup.map(_.sequenceU).map({
+          case Left(error) => outboundSocketActor ! error
+          case Right(_) => stream.start(outboundSocketActor)
+        })
+
+        start.doOnFinish({
           case None => Task.now((): Unit) // do nothing
           case Some(t) => Task(outboundSocketActor ! KafkaConsumerError("Encountered error starting Kafka Consumer stream", Some(t)))
         }).runAsync
       })
 
     case ShutdownConsumer =>
-      kafkaConsumerStream.map(_.shutdown())
+      kafkaConsumerStream.map(_.stop())
       self ! PoisonPill
 
     case m: MoveOffset =>
-      kafkaConsumerStream.map(_.moveOffset(m.offsetPosition, m.topic, Some(m.partition)).runAsync)
+      kafkaConsumerStream.map(stream => {
+        stream.moveOffset(m.offsetPosition, consumerConfig.topic, m.partition)
+          .map(e => e.leftMap(err => outboundSocketActor ! err))
+          .runAsync
+      })
   }
 }
 

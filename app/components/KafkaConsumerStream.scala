@@ -5,13 +5,11 @@ import akka.actor.ActorRef
 import cats.implicits._
 import models.ConsumerMessages._
 import monix.eval.{ MVar, Task }
-import monix.execution.Scheduler
-import monix.reactive.Observable
+import monix.execution.{ CancelableFuture, Scheduler }
 import org.apache.kafka.clients.consumer.{ ConsumerRecords, KafkaConsumer }
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
-import scala.util.{ Failure, Success }
 
 object KafkaConsumerStream {
 
@@ -25,37 +23,25 @@ object KafkaConsumerStream {
 
       val _kafkaConsumerMVar = MVar(kc)
       val pollTimeout = 5 seconds
-      var streamCancelled = false
 
-      val observable = Observable.fromIterator(new Iterator[PolledConsumerRecords[K, V]] {
-        override def hasNext: Boolean = !streamCancelled
-
-        override def next(): PolledConsumerRecords[K, V] = {
-          val task = _kafkaConsumerMVar.take.flatMap(consumer => {
-            val records = consumer.poll(pollTimeout.toMillis)
-            _kafkaConsumerMVar.put(consumer).map(_ => records)
-          })
-
-          task.runAsync.value match {
-            case Some(Success(consumerRecords)) => consumerRecords.asRight
-            case Some(Failure(t)) => KafkaConsumerError("Failure polling for ConsumerRecords", Some(t)).asLeft
-            case None => KafkaConsumerError("Unknown error encountered polling for ConsumerRecords").asLeft
-          }
-        }
-      }).filter(_.fold[Boolean](_ => true, !_.isEmpty)) // remove only empty results
+      def pollingTask(subscriber: ActorRef): Task[Unit] =
+        _kafkaConsumerMVar.take.flatMap(consumer => {
+          subscriber ! MessagesPayload(consumer.poll(pollTimeout.toMillis))
+          _kafkaConsumerMVar.put(consumer)
+        }).doOnFinish({
+          case None => pollingTask(subscriber)
+          case Some(e) => Task(subscriber ! KafkaConsumerError("Polling of Kafka has failed", Some(e)))
+        })
 
       val stream: KafkaConsumerStream[K, V] = new KafkaConsumerStream[K, V] {
+        var runningPollingTask: Option[CancelableFuture[Unit]] = None
         override val kafkaConsumerMVar: MVar[KafkaConsumer[K, V]] = _kafkaConsumerMVar
-        override def shutdown(): Either[KafkaConsumerError, Unit] = (streamCancelled = true).asRight
-        override def start(subscriber: ActorRef): Either[KafkaConsumerError, Unit] = {
-          observable.foreach({
-            case Right(records) =>
-              subscriber ! MessagesPayload(records)
-            case Left(err) =>
-              subscriber ! err
-              streamCancelled = true
-          })
-          ().asRight
+        override def stop(): Either[KafkaConsumerError, Unit] =
+          runningPollingTask.fold[Either[KafkaConsumerError, Unit]](KafkaConsumerError("Stream not running").asLeft)(t => t.cancel().asRight)
+        override def start(subscriber: ActorRef): CancelableFuture[Unit] = {
+          val running = pollingTask(subscriber).delayExecution(1 second).runAsync
+          runningPollingTask = Some(running)
+          running
         }
       }
 
@@ -70,8 +56,8 @@ sealed trait KafkaConsumerStream[K, V] {
   val kafkaConsumerMVar: MVar[KafkaConsumer[K, V]]
   private var kafkaTopic: ConfiguredKafkaTopic = KafkaConsumerError("Topic not yet set").asLeft
 
-  def start(subscriber: ActorRef): Either[KafkaConsumerError, Unit]
-  def shutdown(): Either[KafkaConsumerError, Unit]
+  def start(subscriber: ActorRef): CancelableFuture[Unit]
+  def stop(): Either[KafkaConsumerError, Unit]
 
   def setTopic(newTopic: String): Task[ConfiguredKafkaTopic] = {
     def error[T <: Throwable](t: T) = KafkaConsumerError(s"Failed to subscribe to topic $newTopic", Some(t)).asLeft
@@ -103,7 +89,7 @@ sealed trait KafkaConsumerStream[K, V] {
     }).onErrorHandle(error)
   }
 
-  def moveOffset(offsetPosition: OffsetPosition, topic: String, partition: Partition = AllPartitions): Task[Either[KafkaConsumerError, List[Unit]]] = {
+  def moveOffset(offsetPosition: OffsetPosition, topic: String, partition: Partition = AllPartitions): Task[Either[KafkaConsumerError, Unit]] = {
     kafkaConsumerMVar.take.flatMap(consumer => {
       val partitions = partition match {
         case AllPartitions => consumer.assignment().asScala.map(_.partition()).toSeq
@@ -114,7 +100,7 @@ sealed trait KafkaConsumerStream[K, V] {
         OffsetPosition(offsetPosition, topic, p)(consumer).leftMap(offsetErr => KafkaConsumerError(offsetErr.reason))
       }).toList.sequenceU
 
-      kafkaConsumerMVar.put(consumer).map(_ => offset)
+      kafkaConsumerMVar.put(consumer).map(_ => offset.map(_ => ()))
 
     }).onErrorHandle(t => KafkaConsumerError("Failed to move offset of consumer", Some(t)).asLeft)
   }

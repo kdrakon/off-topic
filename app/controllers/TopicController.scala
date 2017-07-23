@@ -36,7 +36,7 @@ trait TopicController extends InjectedController {
 
     val consumerId = request.session.get("consumer_id").fold(genConsumerId)(s => s)
     val consumerProps = genConsumerProps(baseConsumerProps, Map(KafkaConsumerConfig.CLIENT_ID_CONFIG -> consumerId))
-    val consumerConfig = ConsumerConfig(consumerId, consumerProps, consumerType)
+    val consumerConfig = ConsumerConfig(consumerId, topicName, consumerProps, consumerType)
 
     Task {
       ActorFlow.actorRef(outboundSocketActor => props(consumerType, outboundSocketActor, consumerConfig)).asRight
