@@ -66,7 +66,7 @@ trait ConsumerActor[K, V] extends Actor {
         })
 
         start.doOnFinish({
-          case None => Task.now((): Unit) // do nothing
+          case None => Task.unit // do nothing
           case Some(t) => Task(outboundSocketActor ! KafkaConsumerError("Encountered error starting Kafka Consumer stream", Some(t)))
         }).runAsync
       })

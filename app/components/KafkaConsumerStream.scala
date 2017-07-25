@@ -23,26 +23,21 @@ object KafkaConsumerStream {
 
       val _kafkaConsumerMVar = MVar(kc)
       val pollTimeout = 5 seconds
+      var stopped = false
 
       def pollingTask(subscriber: ActorRef): Task[Unit] =
         _kafkaConsumerMVar.take.flatMap(consumer => {
           subscriber ! MessagesPayload(consumer.poll(pollTimeout.toMillis))
           _kafkaConsumerMVar.put(consumer)
         }).doOnFinish({
-          case None => pollingTask(subscriber)
+          case None => if (!stopped) pollingTask(subscriber) else Task.unit
           case Some(e) => Task(subscriber ! KafkaConsumerError("Polling of Kafka has failed", Some(e)))
         })
 
       val stream: KafkaConsumerStream[K, V] = new KafkaConsumerStream[K, V] {
-        var runningPollingTask: Option[CancelableFuture[Unit]] = None
         override val kafkaConsumerMVar: MVar[KafkaConsumer[K, V]] = _kafkaConsumerMVar
-        override def stop(): Either[KafkaConsumerError, Unit] =
-          runningPollingTask.fold[Either[KafkaConsumerError, Unit]](KafkaConsumerError("Stream not running").asLeft)(t => t.cancel().asRight)
-        override def start(subscriber: ActorRef): CancelableFuture[Unit] = {
-          val running = pollingTask(subscriber).delayExecution(1 second).runAsync
-          runningPollingTask = Some(running)
-          running
-        }
+        override def stop(): Either[KafkaConsumerError, Unit] = if (stopped) KafkaConsumerError("Stream not running").asLeft else (stopped = true).asRight
+        override def start(subscriber: ActorRef): CancelableFuture[Unit] = pollingTask(subscriber).delayExecution(1 second).runAsync
       }
 
       stream.asRight
