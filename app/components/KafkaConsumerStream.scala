@@ -7,6 +7,7 @@ import models.ConsumerMessages._
 import monix.eval.{ MVar, Task }
 import monix.execution.{ CancelableFuture, Scheduler }
 import org.apache.kafka.clients.consumer.{ ConsumerRecords, KafkaConsumer }
+import org.apache.kafka.common.TopicPartition
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
@@ -75,7 +76,8 @@ sealed trait KafkaConsumerStream[K, V] {
       def subscribe(): ConfiguredKafkaTopic = {
         try {
           consumer.unsubscribe()
-          consumer.subscribe(List(newTopic).asJavaCollection)
+          val partitions = consumer.partitionsFor(newTopic).asScala.map(p => new TopicPartition(p.topic(), p.partition())).asJavaCollection
+          consumer.assign(partitions)
           newTopic.asRight
         } catch {
           case t: Throwable => error(t)
@@ -101,7 +103,7 @@ sealed trait KafkaConsumerStream[K, V] {
   def moveOffset(offsetPosition: OffsetPosition, topic: String, partition: Partition = AllPartitions): Task[Either[KafkaConsumerError, Unit]] = {
     kafkaConsumerMVar.take.flatMap(consumer => {
       val partitions = partition match {
-        case AllPartitions => consumer.assignment().asScala.map(_.partition()).toSeq
+        case AllPartitions => consumer.partitionsFor(topic).asScala.map(_.partition())
         case APartition(p) => Seq(p)
       }
 

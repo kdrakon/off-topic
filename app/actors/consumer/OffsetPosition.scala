@@ -2,6 +2,7 @@ package actors.consumer
 
 import cats.implicits._
 import org.apache.kafka.clients.consumer.KafkaConsumer
+import org.apache.kafka.common.TopicPartition
 
 import scala.collection.JavaConverters._
 
@@ -21,7 +22,8 @@ object OffsetPosition {
   def apply(offsetStart: OffsetPosition, topic: String, partition: Int): Consumer => OffsetPositionResult = {
 
     def topicPartition =
-      (c: Consumer) => c.assignment().asScala.find(tp => tp.topic() == topic && tp.partition() == partition)
+      (c: Consumer) => c.partitionsFor(topic).asScala.find(p => p.topic() == topic && p.partition() == partition)
+        .map(p => new TopicPartition(p.topic(), p.partition()))
 
     offsetStart match {
       case FromBeginning =>
