@@ -1,101 +1,14 @@
 version: '2'
 
 services:
-  zoo1:
-    image: zookeeper:3.4.9
-    restart: always
-    container_name: zoo1
-    hostname: zoo1
-    networks:
-      - kafka-network
+  server:
+    image: landoop/fast-data-dev
     ports:
       - "2181:2181"
-      - "2888:2888"
-      - "3888:3888"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-        ZOO_MY_ID: 1
-        ZOO_PORT: 2181
-        ZOO_SERVERS: server.1=zoo1:2888:3888
-
-  kafka1:
-    image: confluentinc/cp-kafka:3.2.1
-    container_name: kafka1
-    hostname: kafka1
-    networks:
-      - kafka-network
-    ports:
+      - "3030:3030"
+      - "8081-8083:8081-8083"
       - "9092:9092"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - "9581-9584:9581-9584"
     environment:
-      # add the entry "127.0.0.1    kafka1" to your /etc/hosts file
-      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka1:9092"
-      KAFKA_ZOOKEEPER_CONNECT: "zoo1:2181"
-      KAFKA_ZOOKEEPER_CONNECTION_TIMEOUT_MS: 16000
-      KAFKA_BROKER_ID: 1
-      KAFKA_LOG4J_LOGGERS: "kafka.controller=DEBUG,kafka.producer.async.DefaultEventHandler=DEBUG,state.change.logger=DEBUG"
-    depends_on:
-      - zoo1
-
-  kafka-schema-registry:
-    image: confluentinc/cp-schema-registry
-    container_name: kafka-schema-registry
-    hostname: kafka-schema-registry
-    networks:
-      - kafka-network
-    ports:
-      - "8081:8081"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: zoo1:2181
-      SCHEMA_REGISTRY_HOST_NAME: kafka-schema-registry
-      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
-    depends_on:
-      - zoo1
-      - kafka1
-
-  kafka-rest-proxy:
-    image: confluentinc/cp-kafka-rest:3.2.0
-    container_name: kafka-rest-proxy
-    hostname: kafka-rest-proxy
-    networks:
-      - kafka-network
-    ports:
-      - "8082:8082"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      KAFKA_REST_ZOOKEEPER_CONNECT: zoo1:2181
-      KAFKA_REST_LISTENERS: http://0.0.0.0:8082/
-      KAFKA_REST_SCHEMA_REGISTRY_URL: http://kafka-schema-registry:8081/
-      KAFKA_REST_HOST_NAME: kafka-rest-proxy
-    depends_on:
-      - zoo1
-      - kafka1
-      - kafka-schema-registry
-
-  kafka-topics-ui:
-    image: landoop/kafka-topics-ui
-    container_name: kafka-topics-ui
-    hostname: kafka-topics-ui
-    networks:
-      - kafka-network
-    ports:
-      - "8000:8000"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      KAFKA_REST_PROXY_URL: "http://kafka-rest-proxy:8082/"
-      PROXY: "true"
-    depends_on:
-      - zoo1
-      - kafka1
-      - kafka-schema-registry
-      - kafka-rest-proxy
-
-networks:
-  kafka-network:
-    driver: bridge
+      - RUNTESTS=0
+      - ADV_HOST=server

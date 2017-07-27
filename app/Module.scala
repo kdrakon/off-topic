@@ -1,13 +1,17 @@
 import javax.inject.Named
 
-import com.google.inject.{AbstractModule, Provides}
+import actors.DummyDataActor
+import com.google.inject.{ AbstractModule, Provides }
 import com.typesafe.config.Config
+import play.api.libs.concurrent.AkkaGuiceSupport
 
 import scala.collection.JavaConverters._
 
-class Module extends AbstractModule {
+class Module extends AbstractModule with AkkaGuiceSupport {
 
-  override def configure(): Unit = {}
+  override def configure(): Unit = {
+    bindActor[DummyDataActor]("DummyActor")
+  }
 
   @Provides
   @Named("OffTopicConfig")

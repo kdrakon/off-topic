@@ -22,12 +22,19 @@ object KafkaConsumerStream {
     kafkaConsumer.flatMap { kc =>
 
       val _kafkaConsumerMVar = MVar(kc)
-      val pollTimeout = 5 seconds
-      var stopped = false
+      val pollTimeout = 500 millis
+      @volatile var stopped = false
+
+      def closeConsumer(): Task[Unit] =
+        _kafkaConsumerMVar.take.flatMap(consumer => {
+          consumer.unsubscribe()
+          consumer.close()
+          _kafkaConsumerMVar.put(consumer)
+        })
 
       def pollingTask(subscriber: ActorRef): Task[Unit] =
         _kafkaConsumerMVar.take.flatMap(consumer => {
-          subscriber ! MessagesPayload(consumer.poll(pollTimeout.toMillis))
+          if (!stopped) subscriber ! MessagesPayload(consumer.poll(pollTimeout.toMillis))
           _kafkaConsumerMVar.put(consumer)
         }).doOnFinish({
           case None => if (!stopped) pollingTask(subscriber) else Task.unit
@@ -36,8 +43,15 @@ object KafkaConsumerStream {
 
       val stream: KafkaConsumerStream[K, V] = new KafkaConsumerStream[K, V] {
         override val kafkaConsumerMVar: MVar[KafkaConsumer[K, V]] = _kafkaConsumerMVar
-        override def stop(): Either[KafkaConsumerError, Unit] = if (stopped) KafkaConsumerError("Stream not running").asLeft else (stopped = true).asRight
-        override def start(subscriber: ActorRef): CancelableFuture[Unit] = pollingTask(subscriber).delayExecution(1 second).runAsync
+        override def stop(): Either[KafkaConsumerError, Unit] = {
+          if (stopped) {
+            KafkaConsumerError("Stream not running").asLeft
+          } else {
+            closeConsumer().runAsync
+            (stopped = true).asRight
+          }
+        }
+        override def start(subscriber: ActorRef): CancelableFuture[Unit] = pollingTask(subscriber).delayExecution(pollTimeout).runAsync
       }
 
       stream.asRight
