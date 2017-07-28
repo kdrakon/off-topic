@@ -1,35 +1,67 @@
 package actors
 
 import java.time.LocalDateTime
+import javax.inject.Inject
 
-import actors.TopicsActor.GetAllTopics
+import actors.TopicsActor._
+import actors.consumer.genConsumerProps
 import akka.actor.Actor
 import kafka.admin.AdminUtils
 import kafka.utils.ZkUtils
+import org.apache.kafka.clients.consumer.{ KafkaConsumer, ConsumerConfig => KafkaConsumerConfig }
 import org.apache.kafka.clients.producer.{ KafkaProducer, ProducerConfig, ProducerRecord }
 import org.apache.kafka.common.errors.TopicExistsException
-import org.apache.kafka.common.serialization.StringSerializer
+import org.apache.kafka.common.serialization.{ StringDeserializer, StringSerializer }
 
+import scala.collection.JavaConverters._
 import scala.concurrent.ExecutionContext
+import scala.concurrent.duration._
 
 object TopicsActor {
 
-  case object GetAllTopics
+  val SyncDuration = 1 minute
+
+  case object GetTopics
+  case object SyncTopics
+  case class CurrentTopics(topics: List[TopicInfo])
+
+  case class TopicInfo(name: String, partitions: Int)
 
 }
 
-class TopicsActor extends Actor {
+class TopicsActor @Inject() (baseConsumerProps: java.util.Properties) extends Actor {
+
+  implicit val ec: ExecutionContext = context.dispatcher
+
+  private val consumerProps = genConsumerProps(baseConsumerProps, Map(KafkaConsumerConfig.CLIENT_ID_CONFIG -> "offtopic-TopicsActor"))
+  private var topics: List[TopicInfo] = List()
+
+  override def preStart(): Unit = {
+    context.system.scheduler.scheduleOnce(5 seconds)(self ! SyncTopics)
+  }
 
   override def receive: Receive = {
-    case GetAllTopics => ???
+    case GetTopics => sender ! CurrentTopics(List(topics:_*))
+    case SyncTopics =>
+      topics = syncTopics()
+      context.system.scheduler.scheduleOnce(SyncDuration)(self ! SyncTopics)
+  }
+
+  private def syncTopics(): List[TopicInfo] = {
+    val consumer = new KafkaConsumer[String, String](consumerProps, new StringDeserializer, new StringDeserializer)
+    val topics = consumer.listTopics().asScala.map({
+      case (topic, partitions) => TopicInfo(topic, partitions.asScala.map(_.partition()).max)
+    }).toList.sortBy(_.name)
+    consumer.close()
+    topics
   }
 }
 
 // TODO remove this actor
 class DummyDataActor extends Actor {
 
-  import scala.concurrent.duration._
   import scala.collection.JavaConverters._
+  import scala.concurrent.duration._
 
   implicit val ec: ExecutionContext = context.dispatcher
 

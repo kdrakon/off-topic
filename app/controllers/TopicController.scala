@@ -17,13 +17,13 @@ import play.api.mvc._
 
 import scala.concurrent.ExecutionContext
 
-trait TopicController extends InjectedController {
+trait TopicController extends BaseController {
   import TopicController._
   import actors.consumer.ConsumerActor._
 
   implicit val actorSystem: ActorSystem
   implicit val mat: Materializer
-  implicit val executionContext: ExecutionContext
+  implicit lazy val executionContext: ExecutionContext = defaultExecutionContext
   implicit val scheduler: Scheduler = Scheduler(executionContext)
 
   val consumerType: ConsumerType
@@ -69,9 +69,9 @@ object TopicController{
 case class StringTopicController @Inject()
   (
     baseConsumerProps: java.util.Properties,
-    executionContext: ExecutionContext,
     _actorSystem: ActorSystem,
-    _mat: Materializer
+    _mat: Materializer,
+    controllerComponents: ControllerComponents
   ) extends TopicController {
   override val consumerType = StringConsumer
   override implicit val actorSystem = _actorSystem
@@ -81,9 +81,9 @@ case class StringTopicController @Inject()
 case class AvroTopicController @Inject()
 (
   baseConsumerProps: java.util.Properties,
-  executionContext: ExecutionContext,
   _actorSystem: ActorSystem,
-  _mat: Materializer
+  _mat: Materializer,
+  controllerComponents: ControllerComponents
   ) extends TopicController {
   override val consumerType = AvroConsumer
   override implicit val actorSystem = _actorSystem

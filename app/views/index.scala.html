@@ -1,0 +1,19 @@
+@import actors.TopicsActor.TopicInfo
+@(assets: AssetsFinder, topics: List[TopicInfo])
+
+<!DOCTYPE html>
+<html>
+
+    <head>
+        <title>Off Topic | Kafka Topic Viewer</title>
+        <link rel="shortcut icon" href="@assets.path("images/favicon.png")">
+        <link rel="stylesheet" href="@assets.path("stylesheets/main.css")">
+    </head>
+
+    <body>
+        @for(t <- topics) {
+            @t.name<br>
+        }
+    </body>
+
+</html>
