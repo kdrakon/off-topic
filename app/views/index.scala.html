@@ -6,14 +6,39 @@
 
     <head>
         <title>Off Topic | Kafka Topic Viewer</title>
+
         <link rel="shortcut icon" href="@assets.path("images/favicon.png")">
         <link rel="stylesheet" href="@assets.path("stylesheets/main.css")">
+        <link href="https://fonts.googleapis.com/css?family=Muli" rel="stylesheet">
+
+        <script src="@assets.path("javascripts/topicsocket.js")"></script>
     </head>
 
     <body>
-        @for(t <- topics) {
-            @t.name<br>
-        }
+
+        <div id="search" class="topic-name-text">
+            search
+        </div>
+
+        <div id="console">
+
+            <div id="topics-scrollbar-facade">
+                <div id="topics">
+                    @for(topic <- topics) {
+                        <div class="topic">
+                            <span class="topic-name topic-name-text" id="@topic.name">@topic.name</span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div id="message-view-scrollbar-facade">
+                <div id="message-view">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+
     </body>
 
 </html>

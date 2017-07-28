@@ -6,7 +6,7 @@ lazy val `off_topic` = (project in file(".")).enablePlugins(PlayScala)
 
 resolvers += "Confluent" at "http://packages.confluent.io/maven"
 
-scalaVersion := "2.12.2"
+scalaVersion := "2.12.3"
 
 lazy val kafkaVersion = "0.10.2.1"
 lazy val confluentVersion = "3.2.1"

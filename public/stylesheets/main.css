@@ -1,0 +1,59 @@
+body {
+    font-family: 'Muli', sans-serif;
+}
+
+div#search {
+    width: 100%;
+    height: 10%;
+}
+
+div#console {
+    display:flex;
+    flex-direction: row;
+    width: 100%;
+    height: 90%;
+}
+
+div#topics {
+    width: 105%;
+    height: 100%;
+    overflow-x: scroll;
+    z-index: 0;
+}
+
+div#topics-scrollbar-facade {
+    width: 40%;
+    height: 50em;
+    overflow: hidden;
+    z-index: 0;
+}
+
+div#message-view {
+    width: 105%;
+    height: 100%;
+    overflow-x: scroll;
+    z-index: 1;
+    background: rgba(255, 255, 255, .75);
+    padding-left: 1em;
+    padding-right: 1em;
+}
+
+div#message-view-scrollbar-facade {
+    width: 60%;
+    height: 50em;
+    overflow: hidden;
+    z-index: 1;
+}
+
+div.topic {
+    padding-bottom: 0.25em;
+}
+
+.topic-name {
+
+}
+
+.topic-name-text {
+    font-size: 3em;
+    font-weight: 600;
+}

@@ -35,7 +35,10 @@ object KafkaConsumerStream {
 
       def pollingTask(subscriber: ActorRef): Task[Unit] =
         _kafkaConsumerMVar.take.flatMap(consumer => {
-          if (!stopped) subscriber ! MessagesPayload(consumer.poll(pollTimeout.toMillis))
+          if (!stopped) {
+            val records = consumer.poll(pollTimeout.toMillis)
+            if (!records.isEmpty) subscriber ! MessagesPayload(records)
+          }
           _kafkaConsumerMVar.put(consumer)
         }).doOnFinish({
           case None => if (!stopped) pollingTask(subscriber) else Task.unit

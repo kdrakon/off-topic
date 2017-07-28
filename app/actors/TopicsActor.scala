@@ -37,7 +37,7 @@ class TopicsActor @Inject() (baseConsumerProps: java.util.Properties) extends Ac
   private var topics: List[TopicInfo] = List()
 
   override def preStart(): Unit = {
-    context.system.scheduler.scheduleOnce(5 seconds)(self ! SyncTopics)
+    context.system.scheduler.scheduleOnce(1 seconds)(self ! SyncTopics)
   }
 
   override def receive: Receive = {
@@ -65,6 +65,8 @@ class DummyDataActor extends Actor {
 
   implicit val ec: ExecutionContext = context.dispatcher
 
+  val randomTopics: Seq[String] = (0 to 25).map(i => s"Topic-number-${i.toString}")
+
   override def receive: Receive = {
     case _ => Unit
   }
@@ -73,7 +75,9 @@ class DummyDataActor extends Actor {
     val zkClient = ZkUtils.createZkClient("server:2181", 10000, 10000)
     val zkUtils = ZkUtils(zkClient, isZkSecurityEnabled = false)
     try {
-      AdminUtils.createTopic(zkUtils, "test", 1, 1)
+      randomTopics.foreach(topic => {
+        AdminUtils.createTopic(zkUtils, topic, 1, 1)
+      })
     } catch {
       case _: TopicExistsException => // skip topic creation
     }
@@ -82,7 +86,9 @@ class DummyDataActor extends Actor {
       try {
         val config: java.util.Map[String, AnyRef] = Map(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> "server:9092").asInstanceOf[Map[String, AnyRef]].asJava
         val producer = new KafkaProducer[String, String](config, new StringSerializer(), new StringSerializer())
-        producer.send(new ProducerRecord("test", 0, "1", s"blah @ ${LocalDateTime.now()}"))
+        randomTopics.foreach(topic => {
+          producer.send(new ProducerRecord(topic, 0, "1", s"blah @ ${LocalDateTime.now()}"))
+        })
         producer.flush()
         producer.close()
       } catch {

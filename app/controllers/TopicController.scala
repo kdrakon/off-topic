@@ -34,7 +34,7 @@ trait TopicController extends BaseController {
 
   def topicSocket(topicName: String): WebSocket = WebSocket.acceptOrResult[ConsumerMessage, ConsumerMessage] { request =>
 
-    val consumerId = request.session.get("consumer_id").fold(genConsumerId)(s => s)
+    val consumerId = s"Off-Topic-Consumer-${request.session.get("consumer_id").fold(genConsumerId)(s => s)}"
     val consumerProps = genConsumerProps(baseConsumerProps, Map(KafkaConsumerConfig.CLIENT_ID_CONFIG -> consumerId))
     val consumerConfig = ConsumerConfig(consumerId, topicName, consumerProps, consumerType)
 
