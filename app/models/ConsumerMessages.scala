@@ -119,8 +119,8 @@ object ConsumerMessages {
     implicit val ConsumerRecordWrites: Writes[ConsumerRecord[_, _]] = Writes { cr =>
       JsObject {
         Map(
-          "key" -> JsString(cr.key().toString),
-          "value" -> JsString(cr.value().toString),
+          "key" -> Option(cr.key()).fold[JsValue](JsNull)(k => JsString(k.toString)),
+          "value" -> Option(cr.value()).fold[JsValue](JsNull)(k => JsString(k.toString)),
           "offset" -> JsNumber(cr.offset())
         )
       }
