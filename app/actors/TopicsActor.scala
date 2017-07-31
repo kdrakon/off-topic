@@ -8,6 +8,7 @@ import actors.consumer.genConsumerProps
 import akka.actor.Actor
 import kafka.admin.AdminUtils
 import kafka.utils.ZkUtils
+import models.ApiMessages.{ CurrentTopics, TopicInfo }
 import org.apache.kafka.clients.consumer.{ KafkaConsumer, ConsumerConfig => KafkaConsumerConfig }
 import org.apache.kafka.clients.producer.{ KafkaProducer, ProducerConfig, ProducerRecord }
 import org.apache.kafka.common.errors.TopicExistsException
@@ -23,10 +24,6 @@ object TopicsActor {
 
   case object GetTopics
   case object SyncTopics
-  case class CurrentTopics(topics: List[TopicInfo])
-
-  case class TopicInfo(name: String, partitions: Int)
-
 }
 
 class TopicsActor @Inject() (baseConsumerProps: java.util.Properties) extends Actor {

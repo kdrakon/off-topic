@@ -2,6 +2,7 @@
 GET    /assets/*file               controllers.Assets.at(file)
 
 GET    /                           controllers.IndexController.index
+GET    /topics                     controllers.IndexController.topics
 
 GET    /topic/:topicName/string    controllers.StringTopicController.topicSocket(topicName: String)
 GET    /topic/:topicName/avro      controllers.StringTopicController.topicSocket(topicName: String)
