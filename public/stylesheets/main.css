@@ -62,10 +62,11 @@ div#message-view-scrollbar-facade {
 
 div.topic {
     padding-bottom: 0.25em;
+    cursor: pointer;
 }
 
 .topic-name {
-
+    cursor: pointer;
 }
 
 .topic-name-text {
@@ -77,4 +78,5 @@ input#search-input {
     border-style: none;
     width: 100%;
     color: darkgrey;
+    outline: none;
 }
