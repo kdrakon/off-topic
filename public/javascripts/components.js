@@ -1,6 +1,7 @@
 class Console extends React.Component {
 
     static topicSocket = null;
+    static PollConsumer = {"ConsumerMessage": "PollConsumer"};
 
     constructor(props) {
         super(props);
@@ -18,10 +19,8 @@ class Console extends React.Component {
                 <Search filter={this.state.filter} setFilter={(event) => this.setFilter(event)}/>
                 <div id="topic-section">
                     <Topics topics={this.props.topics} filter={this.state.filter}
-                            pushMessage={(message) => this.pushMessage(message)}
-                            clearMessages={() => this.clearMessages()}
-                            readTopic={(topicName) => this.readTopic(topicName)}/>
-                    <MessageView messages={this.state.messages}/>
+                            subscribeToTopic={(topicName) => this.subscribeToTopic(topicName)}/>
+                    <MessageView messages={this.state.messages} pollTopic={() => this.pollTopic()}/>
                 </div>
             </div>
         )
@@ -49,7 +48,7 @@ class Console extends React.Component {
         })
     }
 
-    readTopic(topicName) {
+    subscribeToTopic(topicName) {
         if (Console.topicSocket !== null) Console.topicSocket.close();
 
         let ws = new WebSocket("ws://" + location.host + "/topic/" + topicName + "/string");
@@ -57,9 +56,8 @@ class Console extends React.Component {
         ws.onopen = () => {
             this.clearMessages();
             let moveOffset = {"ConsumerMessage": "MoveOffset", "partition": "AllPartitions", "offsetPosition": "FromBeginning"};
-            let startConsumer = {"ConsumerMessage": "PollConsumer"};
             ws.send(JSON.stringify(moveOffset));
-            ws.send(JSON.stringify(startConsumer));
+            ws.send(JSON.stringify(Console.PollConsumer));
         };
 
         ws.onmessage = (evt) => {
@@ -68,6 +66,10 @@ class Console extends React.Component {
         };
 
         Console.topicSocket = ws;
+    }
+
+    pollTopic() {
+        if (Console.topicSocket !== null) Console.topicSocket.send(JSON.stringify(Console.PollConsumer));
     }
 }
 
@@ -91,7 +93,7 @@ class Topics extends React.Component {
         };
 
         let topics = this.props.topics.filter(searchFilter).map(topic => {
-            return (<Topic key={topic.name} topicName={topic.name} readTopic={this.props.readTopic}/>)
+            return (<Topic key={topic.name} topicName={topic.name} subscribeToTopic={this.props.subscribeToTopic}/>)
         });
 
         return (
@@ -105,7 +107,7 @@ class Topics extends React.Component {
 class Topic extends React.Component {
     render() {
         return (
-            <div className="topic-name topic-name-text" onClick={() => this.props.readTopic(this.props.topicName)}>{this.props.topicName}</div>)
+            <div className="topic-name topic-name-text" onClick={() => this.props.subscribeToTopic(this.props.topicName)}>{this.props.topicName}</div>)
     }
 }
 
@@ -120,6 +122,18 @@ class MessageView extends React.Component {
                 <div id="message-view">{messages}</div>
             </div>
         )
+    }
+
+    componentDidMount() {
+        let messageView = document.getElementById('message-view')
+        messageView.addEventListener('scroll', (event) => {
+            console.log(event)
+        })
+    }
+
+
+    componentWillUnmount() {
+        document.getElementById('message-view').removeEventListener('scroll', null)
     }
 }
 

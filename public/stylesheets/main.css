@@ -31,7 +31,7 @@ div#topic-section {
 
 div#topics {
     width: 105%;
-    height: 105%;
+    height: 100%;
     overflow-x: scroll;
     z-index: 0;
 }
@@ -45,7 +45,7 @@ div#topics-scrollbar-facade {
 
 div#message-view {
     width: 105%;
-    height: 105%;
+    height: 100%;
     overflow-x: scroll;
     z-index: 1;
     background: rgba(255, 255, 255, .75);
