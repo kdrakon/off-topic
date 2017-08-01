@@ -32,8 +32,9 @@ libraryDependencies ++= Seq(
   "org.webjars" % "react" % "15.6.1",
   "org.webjars.npm" % "react-dom" % "15.6.1",
   "org.webjars.bower" % "fetch" % "2.0.3",
+  "org.webjars.npm" % "react-infinite" % "0.11.0",
 
-// Test
+  // Test
   "org.scalacheck" %% "scalacheck" % "1.13.5" % "test",
   "org.scalatest" %% "scalatest" % "3.0.3" % "test"
 )

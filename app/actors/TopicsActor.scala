@@ -62,7 +62,7 @@ class DummyDataActor extends Actor {
 
   implicit val ec: ExecutionContext = context.dispatcher
 
-  val randomTopics: Seq[String] = (0 to 25).map(i => s"Topic-number-${i.toString}")
+  val randomTopics: Seq[String] = (0 to 25).map(i => s"Topic-number-${i.toString}_dfjlfdsfjsldkfsdjfklsfjsklfjfkdslfjklfsdfjsdkdlf")
 
   override def receive: Receive = {
     case _ => Unit

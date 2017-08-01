@@ -7,6 +7,7 @@ import actors.consumer._
 import akka.actor.{ ActorRef, ActorSystem, Props }
 import akka.stream.Materializer
 import cats.implicits._
+import components.{ AtOffset, FromBeginning, FromEnd, OffsetPosition }
 import models.ConsumerMessages.{ ConsumerConfig, ConsumerMessage }
 import monix.eval.Task
 import monix.execution.Scheduler

@@ -2,9 +2,9 @@ package models
 
 import java.util.Properties
 
-import actors.consumer.ConsumerActor.{AvroConsumer, ConsumerType, StringConsumer}
-import actors.consumer.{AtOffset, FromBeginning, FromEnd, OffsetPosition}
-import org.apache.kafka.clients.consumer.{ConsumerRecord, ConsumerRecords}
+import actors.consumer.ConsumerActor.{ AvroConsumer, ConsumerType, StringConsumer }
+import components.{ AtOffset, FromBeginning, FromEnd, OffsetPosition }
+import org.apache.kafka.clients.consumer.{ ConsumerRecord, ConsumerRecords }
 import org.apache.kafka.common.TopicPartition
 import play.api.libs.json._
 
@@ -21,7 +21,7 @@ object ConsumerMessages {
 
   case object ShutdownConsumer extends ConsumerMessage
 
-  case class StartConsumer(offsetStart: OffsetPosition) extends ConsumerMessage
+  case object PollConsumer extends ConsumerMessage
 
   sealed trait Partition
   case object AllPartitions extends Partition
@@ -128,7 +128,6 @@ object ConsumerMessages {
 
     implicit val KafkaConsumerErrorFormat: Format[KafkaConsumerError] = Json.format[KafkaConsumerError]
     implicit val CreateConsumerFormat: Format[CreateConsumer] = Json.format[CreateConsumer]
-    implicit val StartConsumerFormat: Format[StartConsumer] = Json.format[StartConsumer]
     implicit val MoveOffsetFormat: Format[MoveOffset] = Json.format[MoveOffset]
 
     implicit val MessagesPayloadWrites: Writes[MessagesPayload[_, _]] = Writes { mp =>
@@ -150,7 +149,7 @@ object ConsumerMessages {
         case o: JsObject if o ? "KafkaConsumerError" => KafkaConsumerErrorFormat.reads(UnWrapper("KafkaConsumerError", o))
         case o: JsObject if o ? "CreateConsumer" => CreateConsumerFormat.reads(UnWrapper("CreateConsumer", o))
         case o: JsObject if o ? "ShutdownConsumer" => JsSuccess(ShutdownConsumer)
-        case o: JsObject if o ? "StartConsumer" => StartConsumerFormat.reads(UnWrapper("StartConsumer", o))
+        case o: JsObject if o ? "PollConsumer" => JsSuccess(PollConsumer)
         case o: JsObject if o ? "MoveOffset" => MoveOffsetFormat.reads(UnWrapper("MoveOffset", o))
         case o: JsObject if o ? "MessagesPayload" => JsError("Cannot read MessagesPayload type")
       }),
@@ -159,7 +158,7 @@ object ConsumerMessages {
         case m: KafkaConsumerError => Wrapper("KafkaConsumerError", KafkaConsumerErrorFormat.writes(m))
         case m: CreateConsumer => Wrapper("CreateConsumer", CreateConsumerFormat.writes(m))
         case ShutdownConsumer => Wrapper("ShutdownConsumer", JsObject.empty)
-        case m: StartConsumer => Wrapper("StartConsumer", StartConsumerFormat.writes(m))
+        case PollConsumer => Wrapper("PollConsumer", JsObject.empty)
         case m: MoveOffset => Wrapper("MoveOffset", MoveOffsetFormat.writes(m))
         case m: MessagesPayload[_, _] => Wrapper("MessagesPayload", MessagesPayloadWrites.writes(m))
       }

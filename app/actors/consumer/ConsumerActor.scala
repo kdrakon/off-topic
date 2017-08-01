@@ -34,34 +34,13 @@ trait ConsumerActor[K, V] extends Actor {
   }
 
   override def postStop(): Unit = {
-    kafkaConsumerStream.map(_.stop()) // in the event that the client abruptly disconnected
+    kafkaConsumerStream.map(_.stop().runAsync) // in the event that the client abruptly disconnected
   }
 
   override def receive: Receive = {
 
     case CreateConsumer(conf) =>
-      kafkaConsumerStream = kafkaConsumerStream.fold(_ => KafkaConsumerStream.create(createConsumer(conf)), stream => stream.asRight)
-
-    case StartConsumer(offsetPosition) =>
-      kafkaConsumerStream.map(stream => {
-
-        def rightToUnit[T](e: Either[KafkaConsumerError, T]) = e.map(_ => ())
-
-        val setup = Task.sequence(List(stream.setTopic(consumerConfig.topic).map(rightToUnit), stream.moveOffset(offsetPosition, consumerConfig.topic).map(rightToUnit)))
-        val start = setup.map(_.sequenceU).map({
-          case Left(error) => outboundSocketActor ! error
-          case Right(_) => stream.start(outboundSocketActor)
-        })
-
-        start.doOnFinish({
-          case None => Task.unit // do nothing
-          case Some(t) => Task(outboundSocketActor ! KafkaConsumerError("Encountered error starting Kafka Consumer stream", Some(t)))
-        }).runAsync
-      })
-
-    case ShutdownConsumer =>
-      kafkaConsumerStream.map(_.stop())
-      self ! PoisonPill
+      kafkaConsumerStream = kafkaConsumerStream.fold(_ => KafkaConsumerStream.create(createConsumer(conf).map(_.withSubscribedTopic(conf.topic))), stream => stream.asRight)
 
     case m: MoveOffset =>
       kafkaConsumerStream.map(stream => {
@@ -69,6 +48,18 @@ trait ConsumerActor[K, V] extends Actor {
           .map(e => e.leftMap(err => outboundSocketActor ! err))
           .runAsync
       })
+
+    case PollConsumer =>
+      kafkaConsumerStream.foreach(stream => {
+        stream.poll.map({
+          case Right(m) if !m.payload.isEmpty => outboundSocketActor ! m
+          case Left(e) => outboundSocketActor ! e
+        }).runAsync
+      })
+
+    case ShutdownConsumer =>
+      kafkaConsumerStream.map(_.stop().runAsync)
+      self ! PoisonPill
   }
 }
 

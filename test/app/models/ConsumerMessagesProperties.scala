@@ -1,7 +1,7 @@
 package app.models
 
 import actors.consumer.ConsumerActor.StringConsumer
-import actors.consumer.{ AtOffset, FromBeginning, FromEnd }
+import components.{ AtOffset, FromBeginning, FromEnd }
 import models.ConsumerMessages
 import models.ConsumerMessages._
 import org.apache.kafka.clients.consumer.{ ConsumerRecord, ConsumerRecords }
@@ -38,11 +38,7 @@ class ConsumerMessagesProperties extends Properties(ConsumerMessages.getClass.ge
 
   val ShutdownConsumerFormat = all(writesAndReadsMessage(ShutdownConsumer))
 
-  val StartConsumerFormat = forAll { (offset: Long) =>
-    writesAndReadsMessage(StartConsumer(FromBeginning))
-    writesAndReadsMessage(StartConsumer(FromEnd))
-    writesAndReadsMessage(StartConsumer(AtOffset(offset)))
-  }
+  val PollConsumerFormat = all(writesAndReadsMessage(PollConsumer))
 
   val MoveOffsetFormat = forAll { (partition: Int, offset: Long) =>
     writesAndReadsMessage(MoveOffset(AllPartitions, FromBeginning))
@@ -84,7 +80,7 @@ class ConsumerMessagesProperties extends Properties(ConsumerMessages.getClass.ge
     KafkaConsumerErrorFormat :| "KafKaConsumerError",
     CreateConsumerFormat :| "CreateConsumer",
     ShutdownConsumerFormat :| "ShutdownConsumer",
-    StartConsumerFormat :| "StartConsumer",
+    PollConsumerFormat :| "PollConsumer",
     MoveOffsetFormat :| "MoveOffsetFormat",
     MessagesPayloadFormat :| "MessagesPayloadWrites"
   )

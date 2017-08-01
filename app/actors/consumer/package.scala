@@ -2,6 +2,9 @@ package actors
 
 import java.util.UUID
 
+import org.apache.kafka.clients.consumer.KafkaConsumer
+import org.apache.kafka.common.TopicPartition
+
 import scala.collection.JavaConverters._
 
 package object consumer {
@@ -15,4 +18,13 @@ package object consumer {
     props
   }
 
+  implicit class KafkaConsumerImplicits[K, V](kafkaConsumer: KafkaConsumer[K, V]) {
+
+    def withSubscribedTopic(topic: String): KafkaConsumer[K, V] = {
+      kafkaConsumer.unsubscribe()
+      val partitions = kafkaConsumer.partitionsFor(topic).asScala.map(p => new TopicPartition(p.topic(), p.partition())).asJavaCollection
+      kafkaConsumer.assign(partitions)
+      kafkaConsumer
+    }
+  }
 }

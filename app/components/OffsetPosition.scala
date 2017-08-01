@@ -1,4 +1,4 @@
-package actors.consumer
+package components
 
 import cats.implicits._
 import org.apache.kafka.clients.consumer.KafkaConsumer

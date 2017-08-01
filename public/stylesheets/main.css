@@ -67,6 +67,7 @@ div.topic {
 
 .topic-name {
     cursor: pointer;
+    white-space: nowrap;
 }
 
 .topic-name-text {

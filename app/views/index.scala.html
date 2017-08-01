@@ -12,34 +12,16 @@
 
         <script src="@assets.path("javascripts/babel.min.js")"></script> @*in-browser for dev*@
 
-        <script src="@assets.path("lib/react/react.js")"></script>
+        <script src="@assets.path("lib/react/react.js")"></script> @*TODO use min*@
         <script src="@assets.path("lib/react-dom/dist/react-dom.js")"></script>
         <script src="@assets.path("lib/fetch/fetch.js")"></script>
+        <script src="@assets.path("lib/react-infinite/dist/react-infinite.js")"></script>
     </head>
 
     <body>
         <div id="main"></div>
-
-        @*<div id="search">*@
-            @*<input id="search-input" class="topic-name-text" type="search" value="_"/>*@
-        @*</div>*@
-
-        @*<div id="console">*@
-
-            @*<div id="topics-scrollbar-facade">*@
-                @*<div id="topics">*@
-                @*</div>*@
-            @*</div>*@
-
-            @*<div id="message-view-scrollbar-facade">*@
-                @*<div id="message-view">*@
-                @*</div>*@
-            @*</div>*@
-        @*</div>*@
-
     </body>
 
-    <script src="@assets.path("javascripts/topicsocket.js")"></script>
     <script src="@assets.path("javascripts/components.js")" type="text/jsx"></script>
 
 </html>
