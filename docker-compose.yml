@@ -11,4 +11,4 @@ services:
       - "9581-9584:9581-9584"
     environment:
       - RUNTESTS=0
-      - ADV_HOST=server
+      - ADV_HOST=localhost

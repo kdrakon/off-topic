@@ -55,17 +55,32 @@ class Console extends React.Component {
 
         ws.onopen = () => {
             this.clearMessages();
-            let moveOffset = {"ConsumerMessage": "MoveOffset", "partition": "AllPartitions", "offsetPosition": "FromBeginning"};
-            ws.send(JSON.stringify(moveOffset));
             ws.send(JSON.stringify(Console.PollConsumer));
         };
 
         ws.onmessage = (evt) => {
-            let received_msg = evt.data;
-            this.pushMessage(received_msg);
+            let data = JSON.parse(evt.data);
+            data.payload.forEach(message => this.pushMessage(message));
+            Object.entries(Console.lastOffsets(data.payload)).forEach(entry =>{
+              fetch("/commit/" + topicName + "/" + entry[0] + "/" + entry[1], { method: 'PUT', credentials: 'include' })
+            })
         };
 
         Console.topicSocket = ws;
+    }
+
+    static lastOffsets(payload) {
+        let offsets = {};
+        payload.forEach(message => {
+           if (offsets.hasOwnProperty(message.partition)) {
+               if (offsets[message.partition] < message.offset) {
+                   offsets[message.partition] = message.offset;
+               }
+           } else {
+               offsets[message.partition] = message.offset;
+           }
+        });
+        return offsets;
     }
 
     pollTopic() {
@@ -112,6 +127,9 @@ class Topic extends React.Component {
 }
 
 class MessageView extends React.Component {
+
+    static DomId = "message-view";
+
     render() {
         let messages = this.props.messages.map(message => {
             return <Message message={message}/>
@@ -119,28 +137,41 @@ class MessageView extends React.Component {
 
         return (
             <div id="message-view-scrollbar-facade">
-                <div id="message-view">{messages}</div>
+                <div id={MessageView.DomId}>
+                    <ul>{messages}</ul>
+                </div>
             </div>
         )
     }
 
     componentDidMount() {
-        let messageView = document.getElementById('message-view')
+        let messageView = document.getElementById(MessageView.DomId);
         messageView.addEventListener('scroll', (event) => {
-            console.log(event)
+            if (event.target.scrollTop/event.target.scrollHeight > 0.5) this.props.pollTopic()
         })
     }
 
 
     componentWillUnmount() {
-        document.getElementById('message-view').removeEventListener('scroll', null)
+        document.getElementById(MessageView.DomId).removeEventListener('scroll', null)
     }
 }
 
 class Message extends React.Component {
     render() {
         return (
-            <div>{this.props.message}</div>
+            <li>
+                <div className="card">
+                    <div className="card-content">
+                        {this.props.message.value}
+                    </div>
+                    <div className="card-action">
+                        <div className="chip">key: {this.props.message.key}</div>
+                        <div className="chip">partition {this.props.message.partition}</div>
+                        <div className="chip">offset {this.props.message.offset}</div>
+                    </div>
+                </div>
+            </li>
         )
     }
 }

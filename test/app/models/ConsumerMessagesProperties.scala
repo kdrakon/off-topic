@@ -60,20 +60,17 @@ class ConsumerMessagesProperties extends Properties(ConsumerMessages.getClass.ge
     val mp = MessagesPayload(new ConsumerRecords[String, String](cr.asJava))
 
     val json = ConsumerMessageFormat.writes(mp).as[JsObject]
-    val payloadObject = json.value("payload").as[JsObject]
+    val payloadArray = json.value("payload").as[JsArray]
     val shouldNotBeAbleToRead = all(ConsumerMessageFormat.reads(json).isError) :| "Can not use Reads on MessagePayload"
-    val topicPartitionsAreKeys = all(topicPartitions.forall(tp => payloadObject.value.keySet.contains(TopicPartitionFormat.writes(tp).as[String]))) :| "All TopicPartitions are used as keys"
 
     val hasAllConsumerRecords = all {
-      payloadObject.value.keySet.forall(topicPartition => {
-        val jsonKeyValues = payloadObject.value(topicPartition).as[JsArray].value.map(_.as[JsObject])
-        jsonKeyValues.forall(obj => {
-          keyValues(obj.value("key").as[String]) == obj.value("value").as[String] && obj.value("offset").as[Long] >= 1L && obj.value("offset").as[Long] <= 10000L
-        })
+      payloadArray.value.forall(payload => {
+        val obj = payload.as[JsObject]
+        keyValues(obj.value("key").as[String]) == obj.value("value").as[String] && obj.value("offset").as[Long] >= 1L && obj.value("offset").as[Long] <= 10000L
       })
     } :| "All ConsumerRecords mapped to JSON"
 
-    all(shouldNotBeAbleToRead, topicPartitionsAreKeys, hasAllConsumerRecords)
+    all(shouldNotBeAbleToRead, hasAllConsumerRecords)
   }
 
   property("ConsumerMessageFormat") = all(

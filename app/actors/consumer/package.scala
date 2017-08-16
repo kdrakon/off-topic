@@ -1,15 +1,11 @@
 package actors
 
-import java.util.UUID
-
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.common.TopicPartition
 
 import scala.collection.JavaConverters._
 
 package object consumer {
-
-  def genConsumerId: String = UUID.randomUUID().toString
 
   def genConsumerProps(baseProps: java.util.Properties, overrides: Map[String, String]): java.util.Properties = {
     val props = new java.util.Properties()

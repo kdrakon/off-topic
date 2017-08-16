@@ -8,13 +8,14 @@ import akka.actor.{ ActorRef, ActorSystem, Props }
 import akka.stream.Materializer
 import cats.implicits._
 import components.{ AtOffset, FromBeginning, FromEnd, OffsetPosition }
-import models.ConsumerMessages.{ ConsumerConfig, ConsumerMessage }
+import models.ConsumerMessages.{ ConsumerConfig, ConsumerMessage, Offsets }
 import monix.eval.Task
 import monix.execution.Scheduler
 import org.apache.kafka.clients.consumer.{ ConsumerConfig => KafkaConsumerConfig }
 import play.api.libs.streams.ActorFlow
 import play.api.mvc.WebSocket.MessageFlowTransformer
 import play.api.mvc._
+import models.Session._
 
 import scala.concurrent.ExecutionContext
 
@@ -35,9 +36,10 @@ trait TopicController extends BaseController {
 
   def topicSocket(topicName: String): WebSocket = WebSocket.acceptOrResult[ConsumerMessage, ConsumerMessage] { request =>
 
-    val consumerId = s"Off-Topic-Consumer-${request.session.get("consumer_id").fold(genConsumerId)(s => s)}"
+    val session = request.session.getOffTopicSession.getOrElse(NewSession)
+    val consumerId = session.consumerId
     val consumerProps = genConsumerProps(baseConsumerProps, Map(KafkaConsumerConfig.CLIENT_ID_CONFIG -> consumerId))
-    val consumerConfig = ConsumerConfig(consumerId, topicName, consumerProps, consumerType)
+    val consumerConfig = ConsumerConfig(consumerId, topicName, consumerProps, Offsets(session.offsets), consumerType)
 
     Task {
       ActorFlow.actorRef(outboundSocketActor => props(consumerType, outboundSocketActor, consumerConfig)).asRight

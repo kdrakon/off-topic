@@ -62,14 +62,14 @@ class DummyDataActor extends Actor {
 
   implicit val ec: ExecutionContext = context.dispatcher
 
-  val randomTopics: Seq[String] = (0 to 25).map(i => s"Topic-number-${i.toString}_dfjlfdsfjsldkfsdjfklsfjsklfjfkdslfjklfsdfjsdkdlf")
+  val randomTopics: Seq[String] = (0 to 25).map(i => s"Topic-number-${i.toString}_dfjlfdsfjsldkfsdjfklsfj")
 
   override def receive: Receive = {
     case _ => Unit
   }
 
   override def preStart(): Unit = {
-    val zkClient = ZkUtils.createZkClient("server:2181", 10000, 10000)
+    val zkClient = ZkUtils.createZkClient("localhost:2181", 10000, 10000)
     val zkUtils = ZkUtils(zkClient, isZkSecurityEnabled = false)
     try {
       randomTopics.foreach(topic => {
@@ -81,7 +81,7 @@ class DummyDataActor extends Actor {
 
     context.system.scheduler.schedule(5 second, 5 seconds, () => {
       try {
-        val config: java.util.Map[String, AnyRef] = Map(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> "server:9092").asInstanceOf[Map[String, AnyRef]].asJava
+        val config: java.util.Map[String, AnyRef] = Map(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> "localhost:9092").asInstanceOf[Map[String, AnyRef]].asJava
         val producer = new KafkaProducer[String, String](config, new StringSerializer(), new StringSerializer())
         randomTopics.foreach(topic => {
           producer.send(new ProducerRecord(topic, 0, "1", s"blah @ ${LocalDateTime.now()}"))

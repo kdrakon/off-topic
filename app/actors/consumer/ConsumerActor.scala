@@ -2,10 +2,9 @@ package actors.consumer
 
 import akka.actor.{ Actor, ActorRef, PoisonPill }
 import cats.implicits._
-import components.KafkaConsumerStream
 import components.KafkaConsumerStream._
+import components.{ AtOffset, FromBeginning, KafkaConsumerStream }
 import models.ConsumerMessages._
-import monix.eval.Task
 import monix.execution.Scheduler
 import org.apache.avro.generic.GenericRecord
 import org.apache.kafka.clients.consumer.KafkaConsumer
@@ -41,6 +40,13 @@ trait ConsumerActor[K, V] extends Actor {
 
     case CreateConsumer(conf) =>
       kafkaConsumerStream = kafkaConsumerStream.fold(_ => KafkaConsumerStream.create(createConsumer(conf).map(_.withSubscribedTopic(conf.topic))), stream => stream.asRight)
+      kafkaConsumerStream.foreach(_ => {
+        if (conf.offsets.map.nonEmpty) {
+          conf.offsets.map.map(o => MoveOffset(APartition(o._1), AtOffset(o._2))).foreach(m => self ! m)
+        } else {
+          self ! MoveOffset(AllPartitions, FromBeginning)
+        }
+      })
 
     case m: MoveOffset =>
       kafkaConsumerStream.map(stream => {

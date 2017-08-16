@@ -5,7 +5,6 @@ import java.util.Properties
 import actors.consumer.ConsumerActor.{ AvroConsumer, ConsumerType, StringConsumer }
 import components.{ AtOffset, FromBeginning, FromEnd, OffsetPosition }
 import org.apache.kafka.clients.consumer.{ ConsumerRecord, ConsumerRecords }
-import org.apache.kafka.common.TopicPartition
 import play.api.libs.json._
 
 import scala.collection.JavaConverters._
@@ -16,7 +15,8 @@ object ConsumerMessages {
 
   case class KafkaConsumerError(reason: String, error: Option[Throwable] = None) extends ConsumerMessage
 
-  case class ConsumerConfig(consumerId: String, topic: String, props: Properties, consumerType: ConsumerType)
+  case class Offsets(map: Map[Int, Long])
+  case class ConsumerConfig(consumerId: String, topic: String, props: Properties, offsets: Offsets, consumerType: ConsumerType)
   case class CreateConsumer(conf: ConsumerConfig) extends ConsumerMessage
 
   case object ShutdownConsumer extends ConsumerMessage
@@ -75,7 +75,23 @@ object ConsumerMessages {
       })
     )
 
+    implicit val OffsetsFormat: Format[Offsets] = Format(
+      Reads[Offsets]({
+        case JsObject(map) =>
+          val offsets = map.map({
+            case (partition, offset) => partition.toInt -> offset.as[Long]
+          })
+          JsSuccess(Offsets(offsets.toMap))
+        case _ => JsError("Invalid Offsets object")
+      }),
+      Writes[Offsets](offsets => {
+        JsObject(offsets.map.map({
+          case (partition, offset) => partition.toString -> JsNumber(offset)
+        }))
+      })
+    )
     implicit val ConsumerConfigFormat: Format[ConsumerConfig] = Json.format[ConsumerConfig]
+
     implicit val OffsetPosition: Format[OffsetPosition] = Format(
       Reads[OffsetPosition]({
         case JsString("FromBeginning") => JsSuccess(FromBeginning)
@@ -102,26 +118,13 @@ object ConsumerMessages {
       }
     )
 
-    implicit val TopicPartitionFormat: Format[TopicPartition] = Format(
-      Reads[TopicPartition]({
-        case JsString(topicPartition) =>
-          val split = topicPartition.split("][")
-          try {
-            JsSuccess(new TopicPartition(split.head, split.tail.reverse.head.toInt))
-          } catch {
-            case t: Throwable => JsError(t.getMessage)
-          }
-        case _ => JsError("Invalid TopicPartition")
-      }),
-      Writes[TopicPartition](tp => JsString(s"${tp.topic()}][${tp.partition()}"))
-    )
-
     implicit val ConsumerRecordWrites: Writes[ConsumerRecord[_, _]] = Writes { cr =>
       JsObject {
         Map(
           "key" -> Option(cr.key()).fold[JsValue](JsNull)(k => JsString(k.toString)),
           "value" -> Option(cr.value()).fold[JsValue](JsNull)(k => JsString(k.toString)),
-          "offset" -> JsNumber(cr.offset())
+          "offset" -> JsNumber(cr.offset()),
+          "partition" -> JsNumber(cr.partition())
         )
       }
     }
@@ -133,13 +136,7 @@ object ConsumerMessages {
     implicit val MessagesPayloadWrites: Writes[MessagesPayload[_, _]] = Writes { mp =>
       JsObject {
         Seq(
-          "payload" ->
-            JsObject {
-              mp.payload.partitions().asScala.map(topicPartition => {
-                val jsArray = JsArray(mp.payload.records(topicPartition).asScala.sortBy(_.offset()).map(ConsumerRecordWrites.writes))
-                TopicPartitionFormat.writes(topicPartition).as[String] -> jsArray
-              }).toMap
-            }
+          "payload" -> JsArray(mp.payload.iterator().asScala.map(ConsumerRecordWrites.writes).toList)
         )
       }
     }
